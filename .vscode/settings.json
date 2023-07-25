@@ -1,0 +1,8 @@
+{
+    "sonarlint.pathToCompileCommands": "${workspaceFolder}\\build\\compile_commands.json",
+    "nrf-connect.applications": [
+        "${workspaceFolder}"
+    ],
+    "nrf-connect.toolchain.path": "${nrf-connect.toolchain:2.1.2}",
+    "nrf-connect.topdir": "${nrf-connect.sdk:2.1.2}"
+}
