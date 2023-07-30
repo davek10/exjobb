@@ -8,13 +8,32 @@ LOG_MODULE_DECLARE(log1, LOG_LEVEL_DBG);
 
 K_SEM_DEFINE(adv_sem, 0, 3);
 
-sys_slist_t my_attr_list;
+sys_slist_t my_attr_list = {NULL, NULL};
 uint8_t my_attr_list_ctr;
-SYS_SLIST_STATIC_INIT(&my_attr_list);
 
+static void my_ccc_callback(const struct bt_gatt_attr *attr, uint16_t value)
+{
+    return;
+}
 
+static size_t my_read_callback(struct bt_conn *conn,
+                                      const struct bt_gatt_attr *attr,
+                                      void *buf, uint16_t len,
+                                      uint16_t offset)
+{
+    return 0;
+}
 
-static int free_attr_node(struct my_attr_node *attr_node){
+static size_t my_write_callback(struct bt_conn *conn,
+                                const struct bt_gatt_attr *attr,
+                                const void *buf, uint16_t len,
+                                uint16_t offset, uint8_t flags)
+{
+    return 0;
+}
+
+    static int free_attr_node(struct my_attr_node *attr_node)
+{
     k_free(attr_node);
 }
 
@@ -99,7 +118,11 @@ static void * my_cpy_user_data(struct bt_gatt_discover_params *params, void * us
     case BT_GATT_DISCOVER_STD_CHAR_DESC:
         if (bt_uuid_cmp(params->uuid, BT_UUID_GATT_CCC) == 0)
         {
-            return NULL;
+            struct _bt_gatt_ccc *_data = k_malloc(sizeof(struct _bt_gatt_ccc));
+            _data->cfg_changed=my_ccc_callback;
+            _data->cfg_match = NULL;
+            _data->cfg_write = NULL;
+            return _data;
         }
         else if (bt_uuid_cmp(params->uuid, BT_UUID_GATT_CEP) == 0)
         {
@@ -144,7 +167,8 @@ static int my_add_service(struct bt_conn *conn, const struct bt_gatt_attr *attr,
     else if (params->type == BT_GATT_DISCOVER_STD_CHAR_DESC){
         if (bt_uuid_cmp(params->uuid, BT_UUID_GATT_CCC) == 0)
         {
-            return NULL;
+            struct bt_gatt_attr ccc_attr = BT_GATT_CCC(my_ccc_callback, (BT_GATT_PERM_READ | BT_GATT_PERM_WRITE));
+            node->attr.perm = (BT_GATT_PERM_READ | BT_GATT_PERM_WRITE);
         }
         else if (bt_uuid_cmp(params->uuid, BT_UUID_GATT_CEP) == 0)
         {
@@ -152,7 +176,7 @@ static int my_add_service(struct bt_conn *conn, const struct bt_gatt_attr *attr,
         }
         else
         {
-            return NULL;
+            return -1;
         }
     }
 
