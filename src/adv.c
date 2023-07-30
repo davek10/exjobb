@@ -8,6 +8,49 @@ LOG_MODULE_DECLARE(log1, LOG_LEVEL_DBG);
 
 K_SEM_DEFINE(adv_sem, 0, 3);
 
+sys_slist_t my_attr_list;
+uint8_t my_attr_list_ctr;
+SYS_SLIST_STATIC_INIT(&my_attr_list);
+
+
+
+static int free_attr_node(struct my_attr_node *attr_node){
+    k_free(attr_node);
+}
+
+static int reset_attr_list(struct my_attr_node *attr_node){
+    if(sys_slist_is_empty(&my_attr_list)){
+        sys_slist_append(&my_attr_list, &attr_node->node);
+        my_attr_list_ctr = 1;
+        return 0;
+    }
+
+    struct my_attr_node *cn, *cns;
+    struct bt_gatt_attr *attrs = k_malloc(my_attr_list_ctr*sizeof(struct bt_gatt_attr));
+
+    int i = 0;
+    SYS_SLIST_FOR_EACH_CONTAINER_SAFE(&my_attr_list,cn,cns,node){
+        attrs[i] = cn->attr;
+        i++;
+    }
+    sys_slist_init(&my_attr_list);
+
+    struct bt_gatt_service *_service = k_malloc(sizeof(struct bt_gatt_service));
+    _service->attr_count = my_attr_list_ctr;
+    _service->attrs = attrs;
+    int err = bt_gatt_service_register(_service);
+
+    SYS_SLIST_FOR_EACH_CONTAINER_SAFE(&my_attr_list, cn, cns, node)
+    {
+        free_attr_node(cn);
+    }
+    my_attr_list_ctr = 0;
+
+    return reset_attr_list(attr_node);
+
+}
+
+
 static struct bt_uuid* my_cpy_uuid(struct bt_uuid *_uuid){
 
     switch (_uuid->type)
@@ -16,19 +59,19 @@ static struct bt_uuid* my_cpy_uuid(struct bt_uuid *_uuid){
         struct bt_uuid_16 *tmp = k_malloc(sizeof(struct bt_uuid_16));
         memcpy(&tmp->uuid, _uuid, sizeof(struct bt_uuid));
         memcpy(&tmp->val, BT_UUID_16(_uuid)->val, BT_UUID_SIZE_16);
-        return tmp->uuid;
+        return &tmp->uuid;
         
     case BT_UUID_TYPE_32:
         struct bt_uuid_32 *tmp = k_malloc(sizeof(struct bt_uuid_32));
         memcpy(&tmp->uuid, _uuid, sizeof(struct bt_uuid));
         memcpy(&tmp->val, BT_UUID_32(_uuid)->val, BT_UUID_SIZE_32);
-        return tmp->uuid;
+        return &tmp->uuid;
 
     case BT_UUID_TYPE_128:
         struct bt_uuid_128 *tmp = k_malloc(sizeof(struct bt_uuid_128));
         memcpy(&tmp->uuid, _uuid, sizeof(struct bt_uuid));
         memcpy(&tmp->val, BT_UUID_128(_uuid)->val, BT_UUID_SIZE_128);
-        return tmp->uuid;
+        return &tmp->uuid;
     }
 }
 
@@ -67,11 +110,9 @@ static void * my_cpy_user_data(struct bt_gatt_discover_params *params, void * us
     }
 }
 
-static int my_add_service(struct bt_conn *conn, const struct bt_gatt_attr *attr, const struct bt_gatt_discover_params *params)
+static int my_add_service(struct bt_conn *conn, const struct bt_gatt_attr *attr, struct bt_gatt_discover_params *params)
 {
     struct my_attr_node *node = k_malloc(sizeof(struct my_attr_node));
-    node->node = k_malloc(sizeof(struct snode_t));
-    memcpy(node->attr,attr,sizeof(struct bt_gatt_attr));
 
     struct bt_uuid *_uuid = my_cpy_uuid(attr->uuid);
     
@@ -79,10 +120,15 @@ static int my_add_service(struct bt_conn *conn, const struct bt_gatt_attr *attr,
 
     node->attr.uuid=_uuid;
     node->attr.user_data = _user_data;
-    node->attr.read = NULL;
+    node->attr.read = bt_gatt_attr_read_service;
     node->attr.write = NULL;
+    node->attr.perm = BT_GATT_PERM_READ;
+    node->attr.handle = attr->handle;
+
+
 
     if (params->type == BT_GATT_DISCOVER_PRIMARY || params->type == BT_GATT_DISCOVER_SECONDARY){
+        reset_attr_list(node);
         
         params->start_handle = params->start_handle+1;
         params->end_handle = ((struct bt_gatt_service_val *) attr->user_data)->end_handle;
@@ -92,6 +138,22 @@ static int my_add_service(struct bt_conn *conn, const struct bt_gatt_attr *attr,
 
         params->type = BT_GATT_DISCOVER_STD_CHAR_DESC;
         bt_gatt_discover(conn, params);
+    }else if (params->type == BT_GATT_DISCOVER_CHARACTERISTIC){
+
+    }
+    else if (params->type == BT_GATT_DISCOVER_STD_CHAR_DESC){
+        if (bt_uuid_cmp(params->uuid, BT_UUID_GATT_CCC) == 0)
+        {
+            return NULL;
+        }
+        else if (bt_uuid_cmp(params->uuid, BT_UUID_GATT_CEP) == 0)
+        {
+            
+        }
+        else
+        {
+            return NULL;
+        }
     }
 
         return 0;
