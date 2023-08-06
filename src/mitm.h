@@ -8,9 +8,8 @@
 #include <zephyr/sys/slist.h>
 #include <zephyr/bluetooth/uuid.h>
 #include <zephyr/bluetooth/bluetooth.h>
+#include "myutil.h"
 
-#define MY_CHECK_BIT(__u,__n) ((__u) & (1UL <<(__n)))
-#define MY_SET_BIT(__u,__n) ((__u) | (1UL <<__n))
 
 extern struct k_sem target_sem;
 
