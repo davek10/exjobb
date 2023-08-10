@@ -54,6 +54,16 @@ void main(void)
 		.bdaddr = target_mitm_info.addr.a,
 	};
 	
+
+	LOG_INF("Creating main connection ...\n");
+	struct bt_conn_le_conn_param *my_param = BT_LE_CONN_PARAM_DEFAULT;
+	struct bt_conn * _tmp_conn;
+	bt_conn_le_create(get_my_target(), BT_CONN_LE_CREATE_CONN, my_param, &_tmp_conn);
+	k_sem_take(&adv_sem, K_FOREVER);
+	my_start_discovery();
+	
+	LOG_INF("main connection established waiting for discovery process...\n");
+	k_sem_take(&adv_sem, K_FOREVER);
 	/*MY_MAN_BUF*/
 	LOG_INF("attempting to start mitm module and advertisment\n");
 	err = my_mitm_start_ad();
@@ -62,12 +72,6 @@ void main(void)
 	{
 		LOG_ERR("failing to activate mitm module (err %d)\n", err);
 		return;
-	}
-
-	LOG_INF("MITM module started waiting for connections ...\n");
-	bool loop = true;
-	while(loop){
-		k_sem_take(&adv_sem, K_FOREVER);
 	}
 
 	LOG_INF("Exiting %s thread.\n", __func__);

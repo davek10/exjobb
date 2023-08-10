@@ -4,19 +4,32 @@
 #include <zephyr/bluetooth/conn.h>
 #include<zephyr/bluetooth/gatt.h>
 #include "myutil.h"
+#include <zephyr/bluetooth/uuid.h>
+
+#define ALLOW_DISCOVERY
+
 
 LOG_MODULE_DECLARE(log1, LOG_LEVEL_DBG);
 
-K_SEM_DEFINE(adv_sem, 0, 3);
+struct k_sem disc_sem;
+K_SEM_DEFINE(disc_sem, 2, 2);
+K_SEM_DEFINE(adv_sem, 0, 1);
 
 sys_slist_t my_attr_list = {NULL, NULL};
 uint8_t my_attr_list_ctr;
 
 struct bt_conn *main_conn = NULL;
 
+struct bt_gatt_discover_params *chrc_params, *ccc_params;
+
 
 void my_set_main_conn(struct bt_conn *new_conn){
     main_conn = new_conn;
+}
+
+struct bt_conn *my_get_main_conn()
+{
+    return main_conn;
 }
 
 static void my_ccc_callback(const struct bt_gatt_attr *attr, uint16_t value)
@@ -99,6 +112,10 @@ static int flush_attr_list(){
     int i = 0;
     SYS_SLIST_FOR_EACH_CONTAINER_SAFE(&my_attr_list, cn, cns, node)
     {
+        char uuid_str[BT_UUID_STR_LEN];
+        bt_uuid_to_str(cn->attr.uuid,uuid_str, BT_UUID_STR_LEN);
+        LOG_DBG("adding attribute with uuid: %s \n",uuid_str);
+
         attrs[i] = cn->attr;
         i++;
     }
@@ -128,7 +145,6 @@ static int reset_attr_list(struct my_attr_node *attr_node)
     return 0;
 
 }
-
 
 static struct bt_uuid* my_cpy_uuid(struct bt_uuid *_uuid)
 {
@@ -197,6 +213,10 @@ static void * my_cpy_user_data(struct bt_gatt_discover_params *params, void * us
             return NULL;
         }
     }
+    else
+    {
+        return NULL;
+    }
 }
 
 static int my_add_service(struct bt_conn *conn, const struct bt_gatt_attr *attr, struct bt_gatt_discover_params *params)
@@ -211,6 +231,10 @@ static int my_add_service(struct bt_conn *conn, const struct bt_gatt_attr *attr,
     node->attr.user_data = _user_data;
     node->attr.handle = attr->handle;
 
+    char uuid_str[BT_UUID_STR_LEN];
+    bt_uuid_to_str(attr->uuid, uuid_str, sizeof(uuid_str));
+    LOG_DBG("adding attrnode with uuid: %s, handle %u \n",uuid_str,attr->handle);
+
     if (params->type == BT_GATT_DISCOVER_PRIMARY || params->type == BT_GATT_DISCOVER_SECONDARY){
 
         node->attr.read = my_read_callback;
@@ -219,16 +243,17 @@ static int my_add_service(struct bt_conn *conn, const struct bt_gatt_attr *attr,
 
         reset_attr_list(node);
         
-        params->start_handle = params->start_handle+1;
-        params->end_handle = ((struct bt_gatt_service_val *) attr->user_data)->end_handle;
-        params->type = BT_GATT_DISCOVER_CHARACTERISTIC;
+        chrc_params->start_handle = params->start_handle+1;
+        chrc_params->end_handle = ((struct bt_gatt_service_val *) attr->user_data)->end_handle;
+        bt_gatt_discover(conn,chrc_params);
 
-        bt_gatt_discover(conn,params);
+        ccc_params->start_handle = params->start_handle + 1;
+        ccc_params->end_handle = ((struct bt_gatt_service_val *)attr->user_data)->end_handle;
+        bt_gatt_discover(conn, ccc_params);
 
-        params->type = BT_GATT_DISCOVER_STD_CHAR_DESC;
-        bt_gatt_discover(conn, params);
-
+        params->start_handle = ((struct bt_gatt_service_val *)attr->user_data)->end_handle;
         return 0;
+
     }else if (params->type == BT_GATT_DISCOVER_CHARACTERISTIC){
         node->attr.read = bt_gatt_attr_read_chrc;
         node->attr.write = NULL;
@@ -275,20 +300,80 @@ static uint8_t my_discover_func(struct bt_conn *conn,
                                 const struct bt_gatt_attr *attr,
                                 struct bt_gatt_discover_params *params)
 {
+    LOG_DBG("IN HERTE!!!! \n");
         if (attr == NULL)
         {
-
-        LOG_DBG("discover done \n");
-        flush_attr_list();
-        return BT_GATT_ITER_STOP;
+            if(params->type == BT_GATT_DISCOVER_PRIMARY)
+            {
+                LOG_DBG("discover done \n");
+                flush_attr_list();
+                k_sem_give(&adv_sem);
+                return BT_GATT_ITER_STOP;
+            } else
+            {
+                k_sem_give(&disc_sem);
+                return BT_GATT_ITER_STOP;
+            }
     }
-    
+
     int err = my_add_service(conn, attr, params);
-    if(err < 0){
+    if (err < 0)
+    {
         LOG_ERR("cant add service ERROR: %d \n", err);
+    }
+    if(params->type == BT_GATT_DISCOVER_PRIMARY){
+        return BT_GATT_ITER_STOP;
     }
     return BT_GATT_ITER_CONTINUE;
 }
+
+int my_start_discovery(){
+#ifdef ALLOW_DISCOVERY
+    struct bt_gatt_discover_params my_disc_params = 
+    {
+        .uuid = NULL,
+        .type = BT_GATT_DISCOVER_PRIMARY,
+        .start_handle = BT_ATT_FIRST_ATTRIBUTE_HANDLE,
+        .end_handle = BT_ATT_LAST_ATTRIBUTE_HANDLE,
+        .func = my_discover_func,
+    };
+    struct bt_gatt_discover_params tmp_chrc_params =
+        {
+            .uuid = NULL,
+            .type = BT_GATT_DISCOVER_CHARACTERISTIC,
+            .start_handle = BT_ATT_FIRST_ATTRIBUTE_HANDLE,
+            .end_handle = BT_ATT_LAST_ATTRIBUTE_HANDLE,
+            .func = my_discover_func,
+        };
+    struct bt_gatt_discover_params tmp_ccc_params =
+        {
+            .uuid = NULL,
+            .type = BT_GATT_DISCOVER_STD_CHAR_DESC,
+            .start_handle = BT_ATT_FIRST_ATTRIBUTE_HANDLE,
+            .end_handle = BT_ATT_LAST_ATTRIBUTE_HANDLE,
+            .func = my_discover_func,
+        };
+        chrc_params = &tmp_chrc_params;
+        ccc_params = &tmp_ccc_params;
+
+        if (main_conn != NULL)
+        {
+        while(my_disc_params.start_handle > 0)
+        {
+            for (int i = 0; i < MY_ATTR_LIMIT; i++)
+            {
+                k_sem_take(&disc_sem, K_FOREVER);
+            }
+            int err = bt_gatt_discover(main_conn, &my_disc_params);
+        }
+    }else{
+        LOG_ERR("failed to set main connection \n");
+        return -1;
+    }
+#else
+    k_sem_give(&adv_sem);
+#endif
+    }
 
     static void connected(struct bt_conn * conn, uint8_t err)
     {
@@ -299,8 +384,6 @@ static uint8_t my_discover_func(struct bt_conn *conn,
             LOG_ERR("Connection failed (err %u)\n", err);
             return;
         }
-
-        // k_sem_give(&adv_sem);
         bt_conn_get_info(conn, &my_info);
 
         char addr[BT_ADDR_LE_STR_LEN];
@@ -310,24 +393,22 @@ static uint8_t my_discover_func(struct bt_conn *conn,
 
         if (my_info.role == BT_CONN_ROLE_CENTRAL)
         {
+            main_conn = conn;
+            k_sem_give(&adv_sem);
+            return;
 
-            struct bt_gatt_discover_params my_disc_params = {
-                .uuid = NULL,
-                .type = BT_GATT_DISCOVER_PRIMARY,
-                .start_handle = BT_ATT_FIRST_ATTRIBUTE_HANDLE,
-                .end_handle = BT_ATT_LAST_ATTRIBUTE_HANDLE,
-                .func = my_discover_func,
-            };
-            bt_gatt_discover(conn,&my_disc_params);
         }
         else
         {
+            return;
         }
     }
 
     static void disconnected(struct bt_conn * conn, uint8_t reason)
     {
-        LOG_INF("Disconnected (reason %u)\n", reason);
+        char addr[BT_ADDR_LE_STR_LEN];
+        bt_addr_le_to_str(bt_conn_get_dst(conn), addr, sizeof(addr));
+        LOG_INF("Disconnected to : %s (reason %u)\n",addr,reason);
     }
 
     BT_CONN_CB_DEFINE(conn_callbacks) = {
