@@ -16,7 +16,7 @@ K_SEM_DEFINE(disc_sem, 2, 2);
 K_SEM_DEFINE(adv_sem, 0, 1);
 
 sys_slist_t my_attr_list = {NULL, NULL};
-uint8_t my_attr_list_ctr;
+int my_attr_list_ctr;
 
 struct bt_conn *main_conn = NULL;
 
@@ -110,16 +110,22 @@ static int flush_attr_list(){
     struct bt_gatt_attr *attrs = k_malloc(my_attr_list_ctr * sizeof(struct bt_gatt_attr));
 
     int i = 0;
+    LOG_DBG("starting to free stuff");
     SYS_SLIST_FOR_EACH_CONTAINER_SAFE(&my_attr_list, cn, cns, node)
     {
+        LOG_DBG("i = %i, ctr = %i",i,my_attr_list_ctr);
+
         char uuid_str[BT_UUID_STR_LEN];
         bt_uuid_to_str(cn->attr.uuid,uuid_str, BT_UUID_STR_LEN);
-        LOG_DBG("adding attribute with uuid: %s \n",uuid_str);
+        LOG_DBG("adding attribute with uuid: %s   , handle: %u \n",uuid_str, cn->attr.handle);
 
         attrs[i] = cn->attr;
         i++;
+        free_attr_node(cn);
     }
+    LOG_DBG("done freeing stuff");
     sys_slist_init(&my_attr_list);
+    LOG_DBG("INIT LIST");
 
     struct bt_gatt_service *_service = k_malloc(sizeof(struct bt_gatt_service));
     _service->attr_count = my_attr_list_ctr;
@@ -127,9 +133,7 @@ static int flush_attr_list(){
     int err = bt_gatt_service_register(_service);
 
     SYS_SLIST_FOR_EACH_CONTAINER_SAFE(&my_attr_list, cn, cns, node)
-    {
-        free_attr_node(cn);
-    }
+
     my_attr_list_ctr = 0;
 
     return 0;
@@ -184,8 +188,7 @@ static void * my_cpy_user_data(struct bt_gatt_discover_params *params, void * us
         _data_cpy->uuid = _uuid;
         return _data_cpy;
     }
-        
-
+    
     else if(params->type == BT_GATT_DISCOVER_CHARACTERISTIC)
     {
         struct bt_gatt_chrc *_data = user_data;
@@ -209,7 +212,8 @@ static void * my_cpy_user_data(struct bt_gatt_discover_params *params, void * us
         {
             return NULL;
         }
-        else{
+        else
+        {
             return NULL;
         }
     }
@@ -233,7 +237,7 @@ static int my_add_service(struct bt_conn *conn, const struct bt_gatt_attr *attr,
 
     char uuid_str[BT_UUID_STR_LEN];
     bt_uuid_to_str(attr->uuid, uuid_str, sizeof(uuid_str));
-    LOG_DBG("adding attrnode with uuid: %s, handle %u \n",uuid_str,attr->handle);
+    LOG_DBG("adding attrnode with uuid: %s,type: %u, handle: %u, ctr = %i \n",uuid_str,params->type,attr->handle, my_attr_list_ctr);
 
     if (params->type == BT_GATT_DISCOVER_PRIMARY || params->type == BT_GATT_DISCOVER_SECONDARY){
 
@@ -249,7 +253,7 @@ static int my_add_service(struct bt_conn *conn, const struct bt_gatt_attr *attr,
 
         ccc_params->start_handle = params->start_handle + 1;
         ccc_params->end_handle = ((struct bt_gatt_service_val *)attr->user_data)->end_handle;
-        bt_gatt_discover(conn, ccc_params);
+        int err = bt_gatt_discover(conn, ccc_params);
 
         params->start_handle = ((struct bt_gatt_service_val *)attr->user_data)->end_handle;
         return 0;
@@ -266,6 +270,7 @@ static int my_add_service(struct bt_conn *conn, const struct bt_gatt_attr *attr,
         node2->attr.write = NULL;
         node2->attr.perm = check_chrc_perm(tmp->properties, &node2->attr);
         node2->attr.user_data = NULL;
+        node2->attr.uuid = my_cpy_uuid(tmp->uuid);
         sys_slist_append(&my_attr_list, &node->node);
         sys_slist_append(&my_attr_list, &node2->node);
         my_attr_list_ctr+=2;
@@ -300,13 +305,13 @@ static uint8_t my_discover_func(struct bt_conn *conn,
                                 const struct bt_gatt_attr *attr,
                                 struct bt_gatt_discover_params *params)
 {
-    LOG_DBG("IN HERTE!!!! \n");
         if (attr == NULL)
         {
             if(params->type == BT_GATT_DISCOVER_PRIMARY)
             {
                 LOG_DBG("discover done \n");
                 flush_attr_list();
+                params->start_handle = -1;
                 k_sem_give(&adv_sem);
                 return BT_GATT_ITER_STOP;
             } else
@@ -347,7 +352,7 @@ int my_start_discovery(){
         };
     struct bt_gatt_discover_params tmp_ccc_params =
         {
-            .uuid = NULL,
+            .uuid = BT_UUID_GATT_CCC,
             .type = BT_GATT_DISCOVER_STD_CHAR_DESC,
             .start_handle = BT_ATT_FIRST_ATTRIBUTE_HANDLE,
             .end_handle = BT_ATT_LAST_ATTRIBUTE_HANDLE,
