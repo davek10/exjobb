@@ -66,7 +66,7 @@ void main(void)
 	k_sem_take(&adv_sem, K_FOREVER);
 	/*MY_MAN_BUF*/
 	LOG_INF("attempting to start mitm module and advertisment\n");
-	err = my_mitm_start_ad();
+	//err = my_mitm_start_ad();
 
 	if (err)
 	{
@@ -74,5 +74,6 @@ void main(void)
 		return;
 	}
 
+	k_sem_take(&adv_sem, K_FOREVER);
 	LOG_INF("Exiting %s thread.\n", __func__);
 }
