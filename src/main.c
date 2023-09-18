@@ -46,7 +46,7 @@ void main(void)
 	err = bt_le_scan_stop();
 	if (err)
 	{
-		LOG_ERR("Bluetooth stop scanning failed (err %d)\n", err);
+		LOG_ERR("Bluetooth stop scanning failed (err %u)\n", err);
 		return;
 	}
 
@@ -66,7 +66,7 @@ void main(void)
 	k_sem_take(&adv_sem, K_FOREVER);
 	/*MY_MAN_BUF*/
 	LOG_INF("attempting to start mitm module and advertisment\n");
-	//err = my_mitm_start_ad();
+	err = my_mitm_start_ad();
 
 	if (err)
 	{

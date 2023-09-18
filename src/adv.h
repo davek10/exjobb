@@ -14,6 +14,7 @@ struct my_attr_node{
     sys_snode_t node;
 };
 
+
 int my_start_discovery();
 void my_set_main_conn(struct bt_conn *new_conn);
 struct bt_conn *my_get_main_conn();

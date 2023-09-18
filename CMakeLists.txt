@@ -9,4 +9,5 @@ target_sources(app PRIVATE
   src/observer.c
   src/mitm.c
   src/adv.c
+  src/db.c
 )

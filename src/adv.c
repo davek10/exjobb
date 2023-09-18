@@ -13,10 +13,11 @@
 LOG_MODULE_DECLARE(log1, LOG_LEVEL_DBG);
 
 struct k_sem disc_sem;
-K_SEM_DEFINE(disc_sem, 2, 2);
+K_SEM_DEFINE(disc_sem, 0, 2);
 K_SEM_DEFINE(adv_sem, 0, 1);
 
 sys_slist_t my_attr_list = {NULL, NULL};
+
 
 atomic_t empty_loop = ATOMIC_INIT(0);
 atomic_t my_attr_list_ctr = ATOMIC_INIT(0);
@@ -51,13 +52,29 @@ static void my_ccc_callback(const struct bt_gatt_attr *attr, uint16_t value)
     LOG_INF("ccc callback: attribute with handle: %u \n", attr->handle);
 }
 
+static uint8_t my_read_response_callback(struct bt_conn *conn, uint8_t err,
+                                         struct bt_gatt_read_params *params,
+                                         const void *data, uint16_t length)
+{
+    LOG_INF("read response callback: attribute with first byte: %x \n", (uint8_t*)(data) );
+    
+    
+}
+
 static size_t my_read_callback(struct bt_conn *conn,
-                                      const struct bt_gatt_attr *attr,
-                                      void *buf, uint16_t len,
-                                      uint16_t offset)
+                                       const struct bt_gatt_attr *attr,
+                                       void *buf, uint16_t len,
+                                       uint16_t offset)
 {
     LOG_INF("trying to read: attribute with handle: %u \n", attr->handle);
-    memcpy(buf,0,len);
+    struct bt_gatt_read_params _read_params = {
+        .func = my_read_response_callback,
+        .handle_count = 0,
+        .uuid = attr->uuid,
+    };
+    int err = bt_gatt_read(main_conn,&_read_params);
+    
+    memcpy(buf, 0, len);
     return len;
 }
 
@@ -77,6 +94,7 @@ static void my_free_user_data(void *user_data){
 
     static int free_attr_node(struct my_attr_node *attr_node)
 {
+    LOG_DBG("freeing a node!");
     my_free_user_data(attr_node->attr.user_data);
     k_free(attr_node->attr.uuid);
     k_free(attr_node);
@@ -149,13 +167,21 @@ static int flush_attr_list(){
 
         attrs[i] = cn->attr;
         i++;
-        free_attr_node(cn);
+        k_free(cn);
     }
     sys_slist_init(&my_attr_list);
 
     struct bt_gatt_service *_service = k_malloc(sizeof(struct bt_gatt_service));
     _service->attr_count = atomic_get(&my_attr_list_ctr);
     _service->attrs = attrs;
+
+    for(int i = 0; i< _service->attr_count; i++){
+        struct bt_gatt_attr att = _service->attrs[i];
+        if(att.uuid == NULL){
+            LOG_ERR("ERROR");
+        }
+    }
+
     int err = bt_gatt_service_register(_service);
     LOG_DBG("err = %d", err);
     if (IS_ENABLED(CONFIG_BT_SETTINGS))
@@ -165,11 +191,11 @@ static int flush_attr_list(){
     }
 
     atomic_clear(&my_attr_list_ctr);
-    log_panic();
+    //log_panic();
     return 0;
 }
 
-static int reset_attr_list(struct my_attr_node *attr_node)
+static int reset_attr_list()
 {
     if(!sys_slist_is_empty(&my_attr_list)){
 
@@ -184,8 +210,6 @@ static int reset_attr_list(struct my_attr_node *attr_node)
             flush_attr_list();
         }
     }
-    sys_slist_append(&my_attr_list, &attr_node->node);
-    atomic_set(&my_attr_list_ctr, 1);
 
     return 0;
 }
@@ -209,7 +233,8 @@ static struct bt_uuid* my_cpy_uuid(struct bt_uuid *_uuid)
     else if(_uuid->type == BT_UUID_TYPE_128){
         struct bt_uuid_128 *tmp = k_malloc(sizeof(struct bt_uuid_128));
         memcpy(&tmp->uuid, _uuid, sizeof(struct bt_uuid));
-        memcpy(&tmp->val, BT_UUID_128(_uuid)->val, BT_UUID_SIZE_128);
+        memcpy(tmp->val, BT_UUID_128(_uuid)->val, BT_UUID_SIZE_128);
+        //bt_uuid_create(&tmp->uuid, &BT_UUID_128(_uuid)->val, BT_UUID_SIZE_128);
         return &tmp->uuid;
     }
 }
@@ -220,18 +245,29 @@ static void * my_cpy_user_data(struct bt_gatt_discover_params *params, void * us
     {
         struct bt_gatt_service_val *_data = user_data;
 
-        struct bt_gatt_service_val *_data_cpy = k_malloc(sizeof(struct bt_gatt_service_val));
+       /*  struct bt_gatt_service_val *_data_cpy = k_malloc(sizeof(struct bt_gatt_service_val));
         _data_cpy->end_handle = _data->end_handle;
-        struct bt_uuid *_uuid = my_cpy_uuid(_data->uuid);
         _data_cpy->uuid = _uuid;
-        return _data_cpy;
+        char a[BT_UUID_STR_LEN];
+        bt_uuid_to_str(_data_cpy->uuid, a, BT_UUID_STR_LEN);
+        LOG_DBG("primary uuid: %s",a);
+        return _data_cpy; */
+        struct bt_uuid *_uuid = my_cpy_uuid(_data->uuid);
+        return _uuid;
     }
     else if(params->type == BT_GATT_DISCOVER_CHARACTERISTIC)
     {
         struct bt_gatt_chrc *_data = user_data;
         struct bt_gatt_chrc *_data_chrc_cpy = k_malloc(sizeof(struct bt_gatt_chrc));
-        memcpy(_data_chrc_cpy, _data, sizeof(struct bt_gatt_chrc));
-        _data_chrc_cpy->uuid = my_cpy_uuid(_data->uuid);
+        //memcpy(_data_chrc_cpy, _data, sizeof(struct bt_gatt_chrc));
+        
+        _data_chrc_cpy->properties = _data->properties;
+        _data_chrc_cpy->value_handle = 0;
+        struct bt_uuid *tmp = my_cpy_uuid(_data->uuid);
+        _data_chrc_cpy->uuid = tmp;
+        struct bt_uuid_128 *a = BT_UUID_128(_data->uuid);
+        struct bt_uuid_128 *b = BT_UUID_128(_data_chrc_cpy->uuid);
+        struct bt_uuid_128 *c = BT_UUID_128(tmp);
         return _data_chrc_cpy;
     }
     else if (params->type == BT_GATT_DISCOVER_STD_CHAR_DESC)
@@ -265,10 +301,10 @@ static int my_add_service(struct bt_conn *conn, const struct bt_gatt_attr *attr,
     if (my_invalid_uuid(attr->uuid))
     {
         atomic_set_bit(&empty_loop, 0);
+        LOG_DBG("found bad uuid");
         //return 0;
     }
-
-
+    LOG_DBG("type: %u", params->type);
     struct my_attr_node *node = k_malloc(sizeof(struct my_attr_node));
 
     struct bt_uuid *_uuid = my_cpy_uuid(attr->uuid);
@@ -277,10 +313,10 @@ static int my_add_service(struct bt_conn *conn, const struct bt_gatt_attr *attr,
 
     node->attr.uuid=_uuid;
     node->attr.user_data = _user_data;
-    node->attr.handle = attr->handle;
+    //node->attr.handle = attr->handle;
+    node->attr.handle = 0;
 
     char uuid_str[BT_UUID_STR_LEN];
-    bt_uuid_to_str(attr->uuid, uuid_str, sizeof(uuid_str));
 
     if (params->type == BT_GATT_DISCOVER_PRIMARY || params->type == BT_GATT_DISCOVER_SECONDARY)
     {
@@ -289,8 +325,13 @@ static int my_add_service(struct bt_conn *conn, const struct bt_gatt_attr *attr,
         node->attr.write = NULL;
         node->attr.perm = BT_GATT_PERM_READ;
 
-        reset_attr_list(node);
-        
+        struct uuid *ttmp = node->attr.user_data; 
+        bt_uuid_to_str(ttmp, uuid_str, sizeof(uuid_str));
+        LOG_DBG("primary id with userdata uuid: %s",  uuid_str);
+
+        sys_slist_append(&my_attr_list, &node->node);
+        atomic_set(&my_attr_list_ctr, 1);
+
         chrc_params->start_handle = params->start_handle+1;
         chrc_params->end_handle = ((struct bt_gatt_service_val *) attr->user_data)->end_handle;
         int err = bt_gatt_discover(conn,chrc_params);
@@ -313,12 +354,15 @@ static int my_add_service(struct bt_conn *conn, const struct bt_gatt_attr *attr,
         if (my_invalid_uuid(tmp->uuid))
         {
             atomic_set_bit(&empty_loop, 0);
-            //free_attr_node(node);
-            //return 0;
+            LOG_DBG("found bad uuid2");
+            free_attr_node(node);
+            LOG_DBG("done freeing stuff");
+            return 0;
         }
 
         struct my_attr_node *node2 = k_malloc(sizeof(struct my_attr_node));
-        node2->attr.handle = tmp->value_handle;
+        //node2->attr.handle = tmp->value_handle;
+        node2->attr.handle = 0;
         node2->attr.read = NULL;
         node2->attr.write = NULL;
         node2->attr.perm = check_chrc_perm(tmp->properties, &node2->attr);
@@ -365,14 +409,6 @@ static uint8_t my_discover_func(struct bt_conn *conn,
         if (params->type == BT_GATT_DISCOVER_PRIMARY)
         {
             LOG_DBG("discover done \n");
-            if (atomic_test_and_clear_bit(&empty_loop, 0))
-            {
-                my_empty_list();
-            }
-            else
-            {
-                flush_attr_list();
-            }
             params->start_handle = UINT16_MAX;
             k_sem_give(&disc_sem);
             k_sem_give(&disc_sem);
@@ -383,16 +419,18 @@ static uint8_t my_discover_func(struct bt_conn *conn,
             return BT_GATT_ITER_STOP;
         }
     }
-   /*  else if (atomic_test_bit(&empty_loop, 0) && params->type != BT_GATT_DISCOVER_PRIMARY)
+    
+    int err = my_add_service(conn, attr, params);
+
+    if (atomic_test_bit(&empty_loop, 0) && params->type != BT_GATT_DISCOVER_PRIMARY)
     {
         k_sem_give(&disc_sem);
         return BT_GATT_ITER_STOP;
-    } */
+    }
 
     char uuid_str[BT_UUID_STR_LEN];
     bt_uuid_to_str(attr->uuid, uuid_str, BT_UUID_STR_LEN);
 
-    int err = my_add_service(conn, attr, params);
     if (err < 0)
     {
         LOG_ERR("cant add service ERROR: %d \n", err);
@@ -438,13 +476,18 @@ int my_start_discovery()
         while (my_disc_params.start_handle != UINT16_MAX)
         {
             LOG_DBG("starthandle = %u ", my_disc_params.start_handle);
+            int err = bt_gatt_discover(main_conn, &my_disc_params);
+            
             for (int i = 0; i < MY_ATTR_LIMIT; i++)
             {
                 k_sem_take(&disc_sem, K_FOREVER);
             }
+            LOG_DBG("both semas returned");
             int a = 5;
-            int err = bt_gatt_discover(main_conn, &my_disc_params);
+            reset_attr_list();
+            LOG_DBG("after reset list");
         }
+
         LOG_DBG("\n OUT OF THE LOOP\n");
     }else
     {
