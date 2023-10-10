@@ -3,21 +3,43 @@
 
 #include <zephyr/sys/slist.h>
 #include <zephyr/bluetooth/gatt.h>
+#include <zephyr/kernel.h>
 
 struct my_db_entry
 {
     uint16_t handle;
+    int len;
     void *data;
+    struct bt_gatt_attr *attr;
 };
 
 struct my_db_node
 {
     struct my_db_entry data;
     sys_snode_t node;
+    struct k_sem sema;
+    
 };
 
-int my_read_db_entry(uint16_t handle, void *buffer, int len);
-int my_write_db_entry(uint16_t handle, void *buffer, int len);
-int my_read_db_entry(uint16_t handle, void *buffer, int len);
+struct my_ccc_entry{
+    uint16_t ccc_handle;
+    uint16_t char_handle;
+};
+
+struct my_ccc_node{
+    sys_snode_t node;
+    struct my_ccc_entry data;
+};
+
+int my_db_add_entry(uint16_t handle, const void *buffer, uint16_t len, struct bt_gatt_attr *attr);
+const struct bt_gatt_attr *my_db_write_entry(uint16_t handle, const void *buffer, uint16_t len, bool wake);
+const struct bt_gatt_attr* my_db_read_entry(uint16_t handle, void *buffer, uint16_t len, bool wait);
+int my_db_remove_entry(uint16_t handle);
+int my_db_wait_for_entry(uint16_t handle);
+const struct bt_gatt_attr* my_db_get_attr(uint16_t handle);
+
+uint16_t my_get_char_handle(uint16_t ccc_handle);
+int my_add_ccc_entry(uint16_t ccc_handle, uint16_t char_handle);
+int my_remove_ccc_entry(uint16_t ccc_handle);
 
 #endif
