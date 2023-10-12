@@ -125,13 +125,10 @@ static bool my_data_cb(struct bt_data *data, void *user_data){
 		break;
 
 	case BT_DATA_UUID128_ALL:
-		LOG_DBG("type = %u", data->type);
-		LOG_DBG("data len = %u", len);
 		char str_uuid[BT_UUID_STR_LEN];
 
 		bt_uuid_create(&mitm_info->uuid128.uuid, data->data, data->data_len);
 		bt_uuid_to_str((struct bt_uuid *) &mitm_info->uuid128, str_uuid, BT_UUID_STR_LEN);
-		LOG_DBG("mitm_uuid = %s", str_uuid);
 
 		_data_ptr = &(mitm_info->uuid128.val);
 
@@ -159,10 +156,6 @@ static void my_scan_rcv_cb(const struct bt_le_scan_recv_info *info,
 		const bt_addr_le_t * target = get_my_target();
 
 		const char target_s[BT_ADDR_LE_STR_LEN], info_addr_s[BT_ADDR_LE_STR_LEN];
-
-		//bt_addr_le_to_str(target, &target_s, BT_ADDR_LE_STR_LEN);
-		//bt_addr_le_to_str(info->addr, &info_addr_s, BT_ADDR_LE_STR_LEN);
-		//LOG_INF("target_addr = %s \n \r info_addr = %s \n \r", target_s, info_addr_s);
 
 		if(bt_addr_le_cmp(get_my_target(),info->addr) == 0){
 

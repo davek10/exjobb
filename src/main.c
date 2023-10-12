@@ -73,7 +73,7 @@ void main(void)
 		LOG_ERR("failing to activate mitm module (err %d)\n", err);
 		return;
 	}
-
 	k_sem_take(&adv_sem, K_FOREVER);
+	LOG_INF("mitm module started \n");
 	LOG_INF("Exiting %s thread.\n", __func__);
 }

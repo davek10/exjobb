@@ -19,7 +19,6 @@ K_SEM_DEFINE(adv_sem, 0, 1);
 
 sys_slist_t my_attr_list = {NULL, NULL};
 
-
 atomic_t empty_loop = ATOMIC_INIT(0);
 atomic_t my_attr_list_ctr = ATOMIC_INIT(0);
 atomic_t my_sem_counter = ATOMIC_INIT(0);
@@ -50,7 +49,6 @@ struct bt_conn *my_get_main_conn()
 {
     return main_conn;
 }
-
 
     static uint8_t my_ccc_callback(struct bt_conn *conn,
                                    struct bt_gatt_subscribe_params *params,
@@ -214,10 +212,9 @@ static int flush_attr_list(){
     struct bt_gatt_attr *attrs = k_malloc(val_list_ctr * sizeof(struct bt_gatt_attr));
 
     int i = 0;
-    LOG_DBG("starting to free stuff");
+    LOG_DBG("\n adding service \n");
     SYS_SLIST_FOR_EACH_CONTAINER_SAFE(&my_attr_list, cn, cns, node)
     {
-        LOG_DBG("i = %i, ctr = %li",i,val_list_ctr);
 
         char uuid_str[BT_UUID_STR_LEN];
         bt_uuid_to_str(cn->attr.uuid,uuid_str, BT_UUID_STR_LEN);
@@ -227,26 +224,15 @@ static int flush_attr_list(){
         i++;
         k_free(cn);
     }
+    LOG_DBG("\n service added \n");
     sys_slist_init(&my_attr_list);
 
     _service = k_malloc(sizeof(struct bt_gatt_service));
     _service->attr_count = atomic_get(&my_attr_list_ctr);
     _service->attrs = attrs;
 
-    for(int i = 0; i< _service->attr_count; i++){
-        struct bt_gatt_attr att = _service->attrs[i];
-        if(att.uuid == NULL){
-            LOG_ERR("ERROR");
-        }
-    }
-
     int err = bt_gatt_service_register(_service);
     LOG_DBG("err = %d", err);
-    if (IS_ENABLED(CONFIG_BT_SETTINGS))
-    {
-        int b = 5;
-        LOG_DBG("value of b %d", b);
-    }
 
     atomic_clear(&my_attr_list_ctr);
     //log_panic();
@@ -363,8 +349,8 @@ static int my_add_service(struct bt_conn *conn, const struct bt_gatt_attr *attr,
 
     node->attr.uuid=_uuid;
     node->attr.user_data = _user_data;
-    //node->attr.handle = attr->handle;
-    node->attr.handle = 0;
+    node->attr.handle = attr->handle;
+    //node->attr.handle = 0;
 
     char uuid_str[BT_UUID_STR_LEN];
 
@@ -377,7 +363,6 @@ static int my_add_service(struct bt_conn *conn, const struct bt_gatt_attr *attr,
 
         struct uuid *ttmp = node->attr.user_data; 
         bt_uuid_to_str(ttmp, uuid_str, sizeof(uuid_str));
-        LOG_DBG("primary id with userdata uuid: %s",  uuid_str);
 
         sys_slist_append(&my_attr_list, &node->node);
         atomic_set(&my_attr_list_ctr, 1);
@@ -387,10 +372,6 @@ static int my_add_service(struct bt_conn *conn, const struct bt_gatt_attr *attr,
         
         atomic_inc(&my_sem_counter);
         int err = bt_gatt_discover(conn,chrc_params);
-
-        /* ccc_params->start_handle = params->start_handle + 1;
-        ccc_params->end_handle = ((struct bt_gatt_service_val *)attr->user_data)->end_handle;
-        int err2 = bt_gatt_discover(conn, ccc_params); */
 
         params->start_handle = ((struct bt_gatt_service_val *)attr->user_data)->end_handle;
         return 0;
@@ -408,13 +389,12 @@ static int my_add_service(struct bt_conn *conn, const struct bt_gatt_attr *attr,
             atomic_set_bit(&empty_loop, 0);
             LOG_DBG("found bad uuid2");
             free_attr_node(node);
-            LOG_DBG("done freeing stuff");
             return 0;
         }
 
         struct my_attr_node *node2 = k_malloc(sizeof(struct my_attr_node));
         //node2->attr.handle = tmp->value_handle;
-        node2->attr.handle = 0;
+        node2->attr.handle = tmp->value_handle;
         node2->attr.read = NULL;
         node2->attr.write = NULL;
         node2->attr.perm = check_chrc_perm(tmp->properties, &node2->attr);
@@ -557,13 +537,8 @@ int my_start_discovery()
                 
             } while(atomic_get(&my_sem_counter) > 0);
 
-            LOG_DBG("both semas returned");
-            int a = 5;
             reset_attr_list();
-            LOG_DBG("after reset list");
         }
-
-        LOG_DBG("\n OUT OF THE LOOP\n");
     }else
     {
         LOG_ERR("failed to set main connection \n");
