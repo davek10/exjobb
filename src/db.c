@@ -1,11 +1,14 @@
 #include "db.h"
+#include <zephyr/logging/log.h>
+
+LOG_MODULE_DECLARE(log1, LOG_LEVEL_DBG);
 
 static sys_slist_t my_db = {NULL, NULL};
 static sys_slist_t my_ccc_list = {NULL, NULL};
 
 int my_db_add_entry(uint16_t handle, const void *data, uint16_t len, struct bt_gatt_attr *attr)
 {
-
+    LOG_DBG("adding entry with handle: %u", handle);
     struct my_db_node *node = k_malloc(sizeof(struct my_db_node));
     struct my_db_entry *entry = &node->data;
     entry->data = k_malloc(len);
@@ -25,13 +28,15 @@ int my_db_add_entry(uint16_t handle, const void *data, uint16_t len, struct bt_g
 
 const struct bt_gatt_attr *my_db_read_entry(uint16_t handle, void *buffer, uint16_t len, bool wait)
 {
+    LOG_DBG("in read db");
     struct my_db_node *cn;
     SYS_SLIST_FOR_EACH_CONTAINER(&my_db, cn, node){
-
+        LOG_DBG("current handle: %u, looking for handle: %u",cn->data.handle, handle);
         if(cn->data.handle == handle){
             int err = 0;
             if (wait)
             {
+                LOG_DBG("starting to wait for handle %u ", handle);
                 err = k_sem_take(&cn->sema, K_FOREVER);
             }
 
@@ -58,6 +63,7 @@ const struct bt_gatt_attr *my_db_write_entry(uint16_t handle, const void *buffer
         {
             memcpy(cn->data.data, buffer, len);
             if(wake){
+                LOG_DBG("waking handle %u", handle);
                 k_sem_give(&cn->sema);
             }
 

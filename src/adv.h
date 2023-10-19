@@ -10,8 +10,15 @@ extern struct k_sem adv_sem;
 #define MY_ATTR_LIMIT 2
 
 struct my_attr_node{
-    struct bt_gatt_attr attr;
     sys_snode_t node;
+    struct bt_gatt_attr attr;
+    uint8_t type;
+    uint8_t len;
+};
+
+struct my_char_perm{
+    uint16_t perm;
+    uint16_t prop;
 };
 
 

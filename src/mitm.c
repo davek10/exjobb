@@ -79,12 +79,10 @@ int my_activate_mitm()
 
  int set_my_target(const char *target, const char *type)
  {
-  LOG_DBG("IN HERE \n");
   bt_addr_le_from_str(target,type, &target_mitm_info.addr);
   strncpy(&target_mitm_info.addr_str, target, BT_ADDR_LE_STR_LEN);
 
   my_target_set = true;
-  LOG_DBG("OUT HERE \n");
   return 0;
  }
 
@@ -155,8 +153,6 @@ int my_activate_mitm()
       return 0;
   }
 
-  LOG_DBG("allocating new node type: %u, is_sd: %u \n",type, is_sd);
-
   struct my_node *node = k_malloc(sizeof(struct my_node));
 
   struct bt_data tmp_data = BT_DATA(type, data, data_len);
@@ -181,7 +177,6 @@ int my_fill_array(sys_slist_t *lst, struct bt_data *arr){
   struct my_node *cn;
   SYS_SLIST_FOR_EACH_CONTAINER_SAFE(lst, c, cn, node)
   {
-    LOG_DBG("node type = %u \n",c->data.type);
     arr[i] = c->data;
 
     k_free(c);

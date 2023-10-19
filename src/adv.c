@@ -50,7 +50,7 @@ struct bt_conn *my_get_main_conn()
     return main_conn;
 }
 
-    static uint8_t my_ccc_callback(struct bt_conn *conn,
+static uint8_t my_ccc_callback(struct bt_conn *conn,
                                    struct bt_gatt_subscribe_params *params,
                                    const void *data, uint16_t len)
 {
@@ -76,7 +76,7 @@ static void my_ccc_changed(const struct bt_gatt_attr *attr, uint16_t value)
     }
 }
 
-static uint8_t my_read_callback(struct bt_conn *conn, uint8_t err,
+uint8_t my_read_callback(struct bt_conn *conn, uint8_t err,
                                 struct bt_gatt_read_params *params,
                                 const void *data, uint16_t length)
 {
@@ -92,7 +92,7 @@ static size_t my_read_response_callback(struct bt_conn *conn,
                                        void *buf, uint16_t len,
                                        uint16_t offset)
 {
-    LOG_INF("trying to read: attribute with handle: %u \n", attr->handle);
+    LOG_DBG("trying to read: attribute with handle: %u \n", attr->handle);
     struct bt_gatt_read_params _read_params = {
         .func = my_read_callback,
         .handle_count = 1,
@@ -103,13 +103,10 @@ static size_t my_read_response_callback(struct bt_conn *conn,
     };
     int err = bt_gatt_read(main_conn,&_read_params);
 
-    #ifdef MYBLOCKREAD
     bool wait = true;
-    #else
-    bool wait = false;
-    #endif
-    my_db_read_entry(attr->handle,buf,len,wait);
-
+    const struct bt_gatt_attr* tmp = my_db_read_entry(attr->handle,buf,len,wait);
+    //memset(buf,1,1);
+    LOG_DBG("DONE WAITING!, tmp = %p", tmp);
     return len;
 }
 
@@ -127,7 +124,8 @@ static size_t my_write_response_callback(struct bt_conn *conn,
     
 
     if(MY_CHECK_BIT(flags,1)){
-        bt_gatt_write_without_response(main_conn, attr->handle, buf, len,false);
+        LOG_INF("write without response, handle: %u \n", attr->handle);
+        //bt_gatt_write_without_response(main_conn, attr->handle, buf, len,false);
     }else{
         LOG_ERR("UH OH WRITING WITH RESPONSE !!!");
         struct bt_gatt_write_params _write_params = {
@@ -158,9 +156,10 @@ static void my_free_user_data(void *user_data){
 }
 
 
-static uint16_t check_chrc_perm(uint16_t prop, struct bt_gatt_attr *attr)
+static struct my_char_perm check_chrc_perm(uint16_t prop, struct bt_gatt_attr *attr)
 {
     uint16_t perm = 0;
+    uint16_t new_prop = 0;
     for (int i = 0; i < 16; i++)
     {
         if (MY_CHECK_BIT(prop, i))
@@ -168,26 +167,31 @@ static uint16_t check_chrc_perm(uint16_t prop, struct bt_gatt_attr *attr)
             switch (i)
             {
             case 0:
-                perm |= BT_GATT_CHRC_BROADCAST;
+                new_prop |= BT_GATT_CHRC_BROADCAST;
                 break;
             case 1:
-                perm |= BT_GATT_CHRC_READ;
+                LOG_DBG("adding read");
+                new_prop |= BT_GATT_CHRC_READ;
+                perm |= BT_GATT_PERM_READ;
                 attr->read = my_read_response_callback;
                 break;
             case 2:
-                perm |= BT_GATT_CHRC_WRITE_WITHOUT_RESP;
+                new_prop |= BT_GATT_CHRC_WRITE_WITHOUT_RESP;
+                perm |= BT_GATT_PERM_WRITE;
                 break;
             case 3:
-                perm |= BT_GATT_CHRC_WRITE;
+                new_prop |= BT_GATT_CHRC_WRITE;
+                perm |= BT_GATT_PERM_WRITE;
                 attr->write = my_write_response_callback;
                 break;
             case 4:
-                perm |= BT_GATT_CHRC_NOTIFY;
+                new_prop |= BT_GATT_CHRC_NOTIFY;
                 break;
             }
         }
     }
-    return perm;
+    LOG_DBG("char with handle= %u,   perm = %u",attr->handle, perm);
+    return (struct my_char_perm){perm,new_prop};
 }
 
 static int my_empty_list()
@@ -219,8 +223,11 @@ static int flush_attr_list(){
         char uuid_str[BT_UUID_STR_LEN];
         bt_uuid_to_str(cn->attr.uuid,uuid_str, BT_UUID_STR_LEN);
         LOG_DBG("adding attribute with uuid: %s   , handle: %u \n",uuid_str, cn->attr.handle);
-
         attrs[i] = cn->attr;
+
+        if(cn->attr.){
+            my_db_add_entry(cn->attr.handle,NULL,cn->attr., &attrs[i]);
+        }
         i++;
         k_free(cn);
     }
@@ -298,7 +305,7 @@ static void * my_cpy_user_data(struct bt_gatt_discover_params *params, void * us
         //memcpy(_data_chrc_cpy, _data, sizeof(struct bt_gatt_chrc));
         
         _data_chrc_cpy->properties = _data->properties;
-        _data_chrc_cpy->value_handle = 0;
+        _data_chrc_cpy->value_handle = _data->value_handle;
         struct bt_uuid *tmp = my_cpy_uuid(_data->uuid);
         _data_chrc_cpy->uuid = tmp;
         struct bt_uuid_128 *a = BT_UUID_128(_data->uuid);
@@ -340,7 +347,6 @@ static int my_add_service(struct bt_conn *conn, const struct bt_gatt_attr *attr,
         LOG_DBG("found bad uuid");
         //return 0;
     }
-    LOG_DBG("type: %u", params->type);
     struct my_attr_node *node = k_malloc(sizeof(struct my_attr_node));
 
     struct bt_uuid *_uuid = my_cpy_uuid(attr->uuid);
@@ -387,7 +393,6 @@ static int my_add_service(struct bt_conn *conn, const struct bt_gatt_attr *attr,
         if (my_invalid_uuid(tmp->uuid))
         {
             atomic_set_bit(&empty_loop, 0);
-            LOG_DBG("found bad uuid2");
             free_attr_node(node);
             return 0;
         }
@@ -397,7 +402,8 @@ static int my_add_service(struct bt_conn *conn, const struct bt_gatt_attr *attr,
         node2->attr.handle = tmp->value_handle;
         node2->attr.read = NULL;
         node2->attr.write = NULL;
-        node2->attr.perm = check_chrc_perm(tmp->properties, &node2->attr);
+        struct my_char_perm tmp_perms = check_chrc_perm(tmp->properties, &node2->attr);
+        node2->attr.perm = tmp_perms.perm;
         node2->attr.user_data = NULL;
         node2->attr.uuid = my_cpy_uuid(tmp->uuid);
         sys_slist_append(&my_attr_list, &node->node);
