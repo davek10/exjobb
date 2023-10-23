@@ -5,6 +5,7 @@
 #include <zephyr/bluetooth/gatt.h>
 #include <zephyr/kernel.h>
 
+
 struct my_db_entry
 {
     uint16_t handle;
@@ -30,6 +31,8 @@ struct my_ccc_node{
     sys_snode_t node;
     struct my_ccc_entry data;
 };
+
+
 
 int my_db_add_entry(uint16_t handle, const void *buffer, uint16_t len, struct bt_gatt_attr *attr);
 const struct bt_gatt_attr *my_db_write_entry(uint16_t handle, const void *buffer, uint16_t len, bool wake);

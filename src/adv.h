@@ -4,15 +4,26 @@
 #include <zephyr/bluetooth/gatt.h>
 #include <zephyr/bluetooth/conn.h>
 
+#define MY_DEFAULT_LEN 1
+
 extern struct k_sem adv_sem;
 
 
 #define MY_ATTR_LIMIT 2
 
+typedef enum
+{
+    UNDEFINED = 0,
+    PRIMARY = 1,
+    CHARACTERISTIC = 2,
+    CCC = 3,
+    VALUE = 4,
+} my_attr_type;
+
 struct my_attr_node{
     sys_snode_t node;
     struct bt_gatt_attr attr;
-    uint8_t type;
+    my_attr_type type;
     uint8_t len;
 };
 
@@ -25,5 +36,7 @@ struct my_char_perm{
 int my_start_discovery();
 void my_set_main_conn(struct bt_conn *new_conn);
 struct bt_conn *my_get_main_conn();
+
+
 
 #endif

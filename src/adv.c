@@ -225,8 +225,8 @@ static int flush_attr_list(){
         LOG_DBG("adding attribute with uuid: %s   , handle: %u \n",uuid_str, cn->attr.handle);
         attrs[i] = cn->attr;
 
-        if(cn->attr.){
-            my_db_add_entry(cn->attr.handle,NULL,cn->attr., &attrs[i]);
+        if(cn->type == VALUE || cn->type == CHARACTERISTIC){
+            my_db_add_entry(cn->attr.handle,NULL,cn->len, &attrs[i]);
         }
         i++;
         k_free(cn);
@@ -387,8 +387,10 @@ static int my_add_service(struct bt_conn *conn, const struct bt_gatt_attr *attr,
         node->attr.read = bt_gatt_attr_read_chrc;
         node->attr.write = NULL;
         node->attr.perm = BT_GATT_PERM_READ;
+        node->type = CHARACTERISTIC;
+        node->len = MY_DEFAULT_LEN;
 
-        struct bt_gatt_chrc *tmp = attr->user_data;
+            struct bt_gatt_chrc *tmp = attr->user_data;
 
         if (my_invalid_uuid(tmp->uuid))
         {
@@ -402,6 +404,8 @@ static int my_add_service(struct bt_conn *conn, const struct bt_gatt_attr *attr,
         node2->attr.handle = tmp->value_handle;
         node2->attr.read = NULL;
         node2->attr.write = NULL;
+        node2->type = VALUE;
+        node2->len = MY_DEFAULT_LEN;
         struct my_char_perm tmp_perms = check_chrc_perm(tmp->properties, &node2->attr);
         node2->attr.perm = tmp_perms.perm;
         node2->attr.user_data = NULL;

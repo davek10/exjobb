@@ -115,7 +115,7 @@ int my_add_ccc_entry(uint16_t ccc_handle, uint16_t char_handle){
     node->data.ccc_handle = ccc_handle;
     node->data.char_handle = char_handle;
 
-    sys_slist_append(&my_ccc_list, &node);
+    sys_slist_append(&my_ccc_list, node);
     return 0;
 }
 
