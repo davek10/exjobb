@@ -102,7 +102,7 @@ static size_t my_read_response_callback(struct bt_conn *conn,
         },
     };
     int err = bt_gatt_read(main_conn,&_read_params);
-
+    LOG_DBG("Sent read request!");
     bool wait = true;
     const struct bt_gatt_attr* tmp = my_db_read_entry(attr->handle,buf,len,wait);
     //memset(buf,1,1);
