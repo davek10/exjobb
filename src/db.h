@@ -30,13 +30,14 @@ struct my_ccc_entry{
 struct my_ccc_node{
     sys_snode_t node;
     struct my_ccc_entry data;
+    struct bt_gatt_subscribe_params params;
 };
 
 
 
 int my_db_add_entry(uint16_t handle, const void *buffer, uint16_t len, struct bt_gatt_attr *attr);
 const struct bt_gatt_attr *my_db_write_entry(uint16_t handle, const void *buffer, uint16_t len, bool wake);
-const struct bt_gatt_attr* my_db_read_entry(uint16_t handle, void *buffer, uint16_t len, bool wait);
+int my_db_read_entry(uint16_t handle, void *buffer, uint16_t len, bool wait);
 int my_db_remove_entry(uint16_t handle);
 int my_db_wait_for_entry(uint16_t handle);
 const struct bt_gatt_attr* my_db_get_attr(uint16_t handle);
@@ -44,5 +45,6 @@ const struct bt_gatt_attr* my_db_get_attr(uint16_t handle);
 uint16_t my_get_char_handle(uint16_t ccc_handle);
 int my_add_ccc_entry(uint16_t ccc_handle, uint16_t char_handle);
 int my_remove_ccc_entry(uint16_t ccc_handle);
+int my_subscribe_to_all(struct bt_conn *conn, bt_gatt_subscribe_func_t func);
 
 #endif
