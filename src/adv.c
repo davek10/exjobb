@@ -29,7 +29,28 @@ struct bt_gatt_discover_params *chrc_params, *ccc_params;
 
 struct bt_gatt_service *_service;
 
-static bool my_invalid_uuid(struct bt_uuid *uuid)
+static uint8_t tmp_func(const struct bt_gatt_attr *attr, uint16_t handle, void *user_data)
+{
+
+    if(!attr){
+        return BT_GATT_ITER_STOP;
+    }
+
+    char uuid_str[BT_UUID_STR_LEN];
+    bt_uuid_to_str(attr->uuid, uuid_str, BT_UUID_STR_LEN);
+    
+    LOG_DBG("found attr with uuid: %s, handle: %u", uuid_str, handle);
+
+    if(!bt_uuid_cmp(attr->uuid,BT_UUID_GATT_CCC)){
+
+        print_ccc_cfg_data(attr->user_data);
+        
+    }
+
+    return BT_GATT_ITER_CONTINUE;
+}
+
+    static bool my_invalid_uuid(struct bt_uuid *uuid)
 {
     bool val =  (bt_uuid_cmp(uuid, BT_UUID_GAP_APPEARANCE) == 0 || bt_uuid_cmp(uuid, BT_UUID_GAP) == 0 ||
     bt_uuid_cmp(uuid, BT_UUID_GATT_SC) == 0);
@@ -49,56 +70,95 @@ struct bt_conn *my_get_main_conn()
     return main_conn;
 }
 
+void print_ccc_cfg_data(struct _bt_gatt_ccc *data){
+    LOG_DBG("addr of cfg: %p", data);
+    for(int i =0; i< 5; i++)
+    {
+        struct bt_gatt_ccc_cfg *tmp = &data->cfg[i];
+        char addr_str[BT_ADDR_LE_STR_LEN];
+        bt_addr_le_to_str(&tmp->peer, addr_str, BT_ADDR_LE_STR_LEN);
+        LOG_DBG("ccc[%i] addr: %p id: %u, peer: %s, value: %u",i,tmp ,tmp->id, addr_str, tmp->value);
+    }
+}
+
 ssize_t my_ccc_write_callback(struct bt_conn *conn,
                                const struct bt_gatt_attr *attr, const void *buf,
                                uint16_t len, uint16_t offset, uint8_t flags)
 {
+    char uuid_str[BT_UUID_STR_LEN];
+    bt_uuid_to_str(attr->uuid, uuid_str, BT_UUID_STR_LEN);
+    LOG_DBG("writing ccc callback handle: %u, uuid: %s", attr->handle, uuid_str);
+    if(!attr->user_data){
+        LOG_ERR("ERROR CCC USERDATA");
+    }
+    struct _bt_gatt_ccc *data = (struct _bt_gatt_ccc *)attr->user_data;
+    LOG_DBG("ccc data value:  %u",data->value);
+    print_ccc_cfg_data(data);
 
-    LOG_DBG("writing ccc callback handle: %u", attr->handle);
-    bt_gatt_attr_write_ccc(conn, attr, buf, len, offset, flags);
+    ssize_t res = bt_gatt_attr_write_ccc(conn, attr, buf, len, offset, flags);
+    print_ccc_cfg_data(data);
+    return res;
 }
 
-    static uint8_t my_ccc_callback(struct bt_conn * conn,
+static uint8_t my_ccc_callback(struct bt_conn * conn,
                                    struct bt_gatt_subscribe_params * params,
                                    const void *data, uint16_t len)
+{
+    LOG_DBG("ATLEAST ONCE");
+    if (!data)
     {
-        LOG_DBG("ATLEAST ONCE");
-        if (!data)
-        {
-            LOG_INF("ccc data error handle %u", params->value_handle);
-            return BT_GATT_ITER_STOP;
-        }
-        LOG_INF("ccc update callback recieved: attribute with handle: %u \n", params->value_handle);
-        const struct bt_gatt_attr *tmp_attr = my_db_write_entry(params->value_handle, data, len, false);
-        bt_gatt_notify(NULL, tmp_attr, data, len);
-        return BT_GATT_ITER_CONTINUE;
+        LOG_INF("ccc data error handle %u", params->value_handle);
+        return BT_GATT_ITER_STOP;
+    }
+    LOG_INF("ccc update callback recieved: attribute with handle: %u \n", params->value_handle);
+    const struct bt_gatt_attr *tmp_attr = my_db_write_entry(params->value_handle, data, len, false);
+    uint16_t tmp_handle = my_get_char_handle(tmp_attr->handle);
+    struct bt_gatt_attr *tmp_attr2 = my_db_get_attr(tmp_handle);
+
+    LOG_DBG("attrhandle: %u, attr2handle: %u, tmp_handle %u", tmp_attr->handle, tmp_attr2->handle,tmp_handle);
+
+    char uuid_str[BT_UUID_STR_LEN];
+    bt_uuid_to_str(tmp_attr2->uuid, uuid_str, BT_UUID_STR_LEN);
+    struct bt_gatt_chrc *tmp_chrc = tmp_attr2->user_data;
+    char uuid_str2[BT_UUID_STR_LEN];
+    bt_uuid_to_str(tmp_chrc->uuid, uuid_str2, BT_UUID_STR_LEN); 
+    LOG_DBG("attr2 uuid: %s, chrc uuid: %s, chrc valuehandle: %u", uuid_str, uuid_str2, tmp_chrc->value_handle);
+
+    bt_gatt_foreach_attr(1,0xffff,tmp_func,NULL);
+
+    int err = bt_gatt_notify(NULL, tmp_attr2, data, len);
+    if(err){
+        LOG_ERR("gatt notify error: %i", err);
     }
 
-    int my_adv_subscribe_to_all()
-    {
+    return BT_GATT_ITER_CONTINUE;
+}
 
-        int err = my_subscribe_to_all(main_conn, my_ccc_callback);
-        return err;
-    }
+int my_adv_subscribe_to_all()
+{
 
-    static void my_ccc_changed(const struct bt_gatt_attr *attr, uint16_t value)
-    {
-        LOG_INF("ccc callback: user wants to subscribe to attribute with handle: %u \n", attr->handle);
-        /*
-        if (value == BT_GATT_CCC_NOTIFY){
-            uint16_t value_handle = my_get_char_handle(attr->handle);
-            struct bt_gatt_ccc *tmp = attr->user_data;
-            struct bt_gatt_subscribe_params sub_params = {
-                .ccc_handle = attr->handle,
-                .notify = my_ccc_callback,
-                .value_handle = value_handle,
-                .value = BT_GATT_CCC_NOTIFY,
+    int err = my_subscribe_to_all(main_conn, my_ccc_callback);
+    return err;
+}
 
-            };
+static void my_ccc_changed(const struct bt_gatt_attr *attr, uint16_t value)
+{
+    LOG_INF("ccc callback: user wants to subscribe to attribute with handle: %u \n", attr->handle);
+    /*
+    if (value == BT_GATT_CCC_NOTIFY){
+        uint16_t value_handle = my_get_char_handle(attr->handle);
+        struct bt_gatt_ccc *tmp = attr->user_data;
+        struct bt_gatt_subscribe_params sub_params = {
+            .ccc_handle = attr->handle,
+            .notify = my_ccc_callback,
+            .value_handle = value_handle,
+            .value = BT_GATT_CCC_NOTIFY,
 
-        }*/
-        return;
-    }
+        };
+
+    }*/
+    return;
+}
 
     uint8_t my_read_callback(struct bt_conn * conn, uint8_t err,
                              struct bt_gatt_read_params * params,
@@ -169,7 +229,6 @@ static size_t my_write_response_callback(struct bt_conn *conn,
                                 uint16_t offset, uint8_t flags)
 {
     LOG_INF("trying to write: attribute with handle: %u \n", attr->handle);
-    
 
     if(MY_CHECK_BIT(flags,1)){
         LOG_INF("write without response, handle: %u \n", attr->handle);
@@ -367,10 +426,12 @@ static void * my_cpy_user_data(struct bt_gatt_discover_params *params, void * us
         {
             LOG_DBG("CCC userdata created");
             struct _bt_gatt_ccc *_data = k_malloc(sizeof(struct _bt_gatt_ccc));
-            memset(_data,0,sizeof(sizeof(struct _bt_gatt_ccc)));
+            memset(_data,0,sizeof(struct _bt_gatt_ccc));
             _data->cfg_changed = my_ccc_changed;
             _data->cfg_match = NULL;
             _data->cfg_write = NULL;
+            LOG_DBG("AT CREATION");
+            print_ccc_cfg_data(_data);
             return _data;
         }
         else if (bt_uuid_cmp(params->uuid, BT_UUID_GATT_CEP) == 0)
@@ -467,7 +528,7 @@ static int my_add_service(struct bt_conn *conn, const struct bt_gatt_attr *attr,
         //my_add_db_entry(tmp->value_handle, NULL, );
 
         //DANGER
-        ccc_params->start_handle = tmp->value_handle;
+        ccc_params->start_handle = attr->handle;
         ccc_params->end_handle = params->end_handle;
         atomic_inc(&my_sem_counter);
         int err2 = bt_gatt_discover(conn, ccc_params);
@@ -481,9 +542,10 @@ static int my_add_service(struct bt_conn *conn, const struct bt_gatt_attr *attr,
         {
             node->attr.perm = (BT_GATT_PERM_READ | BT_GATT_PERM_WRITE);
             node->attr.read = bt_gatt_attr_read_ccc;
+            //node->attr.write = my_ccc_write_callback;
             node->attr.write = bt_gatt_attr_write_ccc;
 
-            sys_slist_append(&my_attr_list,&node->node);
+                sys_slist_append(&my_attr_list, &node->node);
             int err = my_add_ccc_entry(attr->handle, params->start_handle);
 
             atomic_inc(&my_attr_list_ctr);

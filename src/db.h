@@ -25,6 +25,7 @@ struct my_db_node
 struct my_ccc_entry{
     uint16_t ccc_handle;
     uint16_t char_handle;
+    uint16_t value_handle;
 };
 
 struct my_ccc_node{
@@ -43,6 +44,7 @@ int my_db_wait_for_entry(uint16_t handle);
 const struct bt_gatt_attr* my_db_get_attr(uint16_t handle);
 
 uint16_t my_get_char_handle(uint16_t ccc_handle);
+uint16_t my_get_value_handle(uint16_t ccc_handle);
 int my_add_ccc_entry(uint16_t ccc_handle, uint16_t char_handle);
 int my_remove_ccc_entry(uint16_t ccc_handle);
 int my_subscribe_to_all(struct bt_conn *conn, bt_gatt_subscribe_func_t func);
