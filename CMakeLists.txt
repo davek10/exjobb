@@ -10,4 +10,5 @@ target_sources(app PRIVATE
   src/mitm.c
   src/adv.c
   src/db.c
+  src/my_uart.c
 )

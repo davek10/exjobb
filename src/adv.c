@@ -12,6 +12,7 @@
 //#define MYBLOCKREAD
 
 LOG_MODULE_DECLARE(log1, LOG_LEVEL_DBG);
+#define CHECK_RULES
 
 struct k_sem disc_sem;
 K_SEM_DEFINE(disc_sem, 0, K_SEM_MAX_LIMIT);
@@ -28,6 +29,39 @@ struct bt_conn *main_conn = NULL;
 struct bt_gatt_discover_params *chrc_params, *ccc_params;
 
 struct bt_gatt_service *_service;
+
+struct my_rule my_rules[MAX_RULES];
+int num_rules = 0;
+
+
+int my_add_rule(bool dir, uint16_t handle, bool set_new_val, int new_val ){
+
+    if(num_rules == MAX_RULES){
+        return -1;
+    }
+    struct my_rule *tmp = &my_rules[num_rules];
+
+    tmp->dir = dir;
+    tmp->handle = handle;
+    tmp->set_new_val = set_new_val;
+    tmp->new_val = new_val;
+
+    num_rules++;
+    return 0;
+}
+
+int my_check_rules(uint8_t dir, uint16_t handle){
+    if(!num_rules){
+        return 0;
+    }
+    for(int i =0; i < num_rules; i++){
+        struct my_rule *tmp = &my_rules[i];
+        if(tmp->dir == dir && tmp->handle == handle){
+            return -1;
+        }
+    }
+    return 0;
+}
 
 static uint8_t tmp_func(const struct bt_gatt_attr *attr, uint16_t handle, void *user_data)
 {
@@ -126,6 +160,11 @@ static uint8_t my_ccc_callback(struct bt_conn * conn,
 
     bt_gatt_foreach_attr(1,0xffff,tmp_func,NULL);
 
+    #ifdef CHECK_RULES
+    if(my_check_rules(1,tmp_attr2->handle)){
+        return BT_GATT_ITER_STOP;
+    }
+    #endif
     int err = bt_gatt_notify(NULL, tmp_attr2, data, len);
     if(err){
         LOG_ERR("gatt notify error: %i", err);

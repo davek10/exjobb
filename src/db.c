@@ -7,6 +7,17 @@ LOG_MODULE_DECLARE(log1, LOG_LEVEL_DBG);
 static sys_slist_t my_db = {NULL, NULL};
 static sys_slist_t my_ccc_list = {NULL, NULL};
 
+
+void my_db_foreach(void (*func)(uint16_t handle, struct bt_gatt_attr *attr, void* user_data),void *data){
+    struct my_db_node *cn;
+    SYS_SLIST_FOR_EACH_CONTAINER(&my_db, cn, node)
+    {
+       func(cn->data.handle,cn->data.attr,data);
+    }
+    return;
+}
+
+
 int my_db_add_entry(uint16_t handle, const void *data, uint16_t len, struct bt_gatt_attr *attr)
 {
     LOG_DBG("adding entry with handle: %u", handle);

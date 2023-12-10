@@ -48,5 +48,6 @@ uint16_t my_get_value_handle(uint16_t ccc_handle);
 int my_add_ccc_entry(uint16_t ccc_handle, uint16_t char_handle);
 int my_remove_ccc_entry(uint16_t ccc_handle);
 int my_subscribe_to_all(struct bt_conn *conn, bt_gatt_subscribe_func_t func);
+void my_db_foreach(void (*func)(uint16_t handle, struct bt_gatt_attr *attr, void *user_data), void *data);
 
 #endif

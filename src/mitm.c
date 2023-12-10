@@ -141,6 +141,8 @@ int my_activate_mitm()
   k_free(my_ad);
   k_free(my_sd);
 
+  k_sem_give(&target_sem);
+
   return 0;
  }
 
