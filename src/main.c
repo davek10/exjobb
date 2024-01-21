@@ -1,19 +1,14 @@
-/*
- * Copyright (c) 2022 Nordic Semiconductor ASA
- *
- * SPDX-License-Identifier: Apache-2.0
- */
+#include <string.h>
 #include <zephyr/bluetooth/bluetooth.h>
-#include "observer.h"
-#include "mitm.h"
+#include <zephyr/bluetooth/buf.h>
+#include <zephyr/bluetooth/hci.h>
 #include <zephyr/logging/log.h>
 #include <zephyr/kernel.h>
-#include<zephyr/bluetooth/hci.h>
-#include<zephyr/bluetooth/buf.h>
-#include"adv.h"
-#include "my_uart.h"
-#include <string.h>
+#include "adv.h"
 #include "db.h"
+#include "mitm.h"
+#include "my_uart.h"
+#include "observer.h"
 
 LOG_MODULE_REGISTER(log1, LOG_LEVEL_DBG);
 
@@ -32,7 +27,7 @@ void lst_handle_cb(uint16_t handle,struct bt_gatt_attr *attr, void *data){
 	
 	char uuid_str[BT_UUID_STR_LEN];
 	bt_uuid_to_str(attr->uuid, uuid_str, BT_UUID_STR_LEN);
-	LOG_DBG("handle: %u, uuid: %s", handle, uuid_str);
+	LOG_INF("handle: %u, uuid: %s", handle, uuid_str);
 }
 
 void lst_conn_cb(struct bt_conn *conn, void *data){
@@ -98,7 +93,11 @@ enum command handle_command(char *buf){
 	if (strncmp(iter, "list", sizeof("list")) == 0)
 	{
 		LOG_DBG("in list");
-		iter = strtok_r(buf,NULL,&tmp);
+		iter = strtok_r(NULL," ",&tmp);
+		LOG_DBG("iter: %s", iter);
+		//iter = strtok_r(iter,NULL,&tmp);
+		LOG_DBG("iter2: %s", iter);
+
 		if (strncmp(iter, "handles", sizeof("handles")) == 0)
 		{
 			return LIST_HANDLES;
@@ -115,18 +114,18 @@ enum command handle_command(char *buf){
 	}
 	else if (strncmp(iter, "block", sizeof("block")) == 0)
 	{
-		iter = strtok_r(buf, NULL, &tmp);
+		iter = strtok_r(NULL, " ", &tmp);
 		int nr = my_str_to_int(iter, UART_MSG_SIZE);
 		my_add_rule(0,nr,0,0);
 		return BLOCK;
 	}
 	else if (strncmp(iter, "set_target", sizeof("set_target")) == 0)
 	{
-		iter = strtok_r(buf, NULL, &tmp);
+		iter = strtok_r(NULL, " ", &tmp);
 		char addr[BT_ADDR_LE_STR_LEN];
 		strncpy(addr,iter,BT_ADDR_LE_STR_LEN);
 		LOG_DBG("addr = %s",addr);
-		iter = strtok_r(buf, NULL, &tmp);
+		iter = strtok_r(NULL, " ", &tmp);
 		char type[sizeof("random")];
 		strncpy(type, iter, sizeof(type));
 		LOG_DBG("type = %s", type);

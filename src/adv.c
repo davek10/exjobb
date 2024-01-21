@@ -270,10 +270,8 @@ static size_t my_write_response_callback(struct bt_conn *conn,
     LOG_INF("trying to write: attribute with handle: %u \n", attr->handle);
 
     if(MY_CHECK_BIT(flags,1)){
-        LOG_INF("write without response, handle: %u \n", attr->handle);
         //bt_gatt_write_without_response(main_conn, attr->handle, buf, len,false);
     }else{
-        LOG_ERR("UH OH WRITING WITH RESPONSE !!!");
         struct bt_gatt_write_params _write_params = {
             .handle = attr->handle,
             .data = buf,
@@ -316,7 +314,6 @@ static struct my_char_perm check_chrc_perm(uint16_t prop, struct bt_gatt_attr *a
                 new_prop |= BT_GATT_CHRC_BROADCAST;
                 break;
             case 1:
-                LOG_DBG("adding read");
                 new_prop |= BT_GATT_CHRC_READ;
                 perm |= BT_GATT_PERM_READ;
                 attr->read = my_read_response_callback;
