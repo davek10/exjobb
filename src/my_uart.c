@@ -1,4 +1,8 @@
-/*
+/* Code copied and modyfied from the Zephyr Echo-Bot example avalible at:
+ * https://github.com/zephyrproject-rtos/zephyr/tree/main/samples/drivers/uart/echo_bot
+ *
+ * Original copyright:
+ * 
  * Copyright (c) 2022 Libre Solar Technologies GmbH
  *
  * SPDX-License-Identifier: Apache-2.0
@@ -10,6 +14,7 @@
 
 #include <string.h>
 #include "my_uart.h"
+#include "myutil.h"
 
 /* change this to any other UART peripheral if desired */
 #define UART_DEVICE_NODE DT_CHOSEN(zephyr_shell_uart)

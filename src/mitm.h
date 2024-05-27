@@ -10,6 +10,7 @@
 #include <zephyr/bluetooth/bluetooth.h>
 #include "myutil.h"
 
+#define MY_MITM_AD_WAIT_LIMIT 15
 
 extern struct k_sem target_sem;
 
@@ -18,12 +19,13 @@ struct my_mitm_info {
     uint8_t name_len;
     bool ext_adv;
     bool fullname;
+    bool coded_phy;
     bt_addr_le_t addr;
     uint8_t ad_type;
     uint8_t flags;
     uint8_t man_data;
-    //uint8_t phy1,phy2;
-    char phy1[20], phy2[20];
+    uint8_t phy1,phy2;
+    //char phy1[20], phy2[20];
     char addr_str[BT_ADDR_LE_STR_LEN];
     struct bt_uuid_128 uuid128;
     struct bt_uuid_32 uuid32;
@@ -57,6 +59,7 @@ bool get_my_mitm_started();
 int my_activate_mitm();
 const bt_addr_le_t* get_my_target();
 int set_my_target(const char *target, const char* type);
+void set_my_target_set(bool value);
 void my_print_mitm_info(const struct my_mitm_info *mitm_info);
 int my_mitm_add_ad(uint8_t type,void *data, uint8_t data_len, bool is_sd);
 int my_mitm_start_ad();

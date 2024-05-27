@@ -1,4 +1,4 @@
-#include "adv.h"
+#include "my_adv.h"
 #include <zephyr/types.h>
 #include <zephyr/logging/log.h>
 #include <zephyr/bluetooth/conn.h>
@@ -11,7 +11,7 @@
 #define ALLOW_DISCOVERY
 //#define MYBLOCKREAD
 
-LOG_MODULE_DECLARE(log1, LOG_LEVEL_DBG);
+LOG_MODULE_DECLARE(log1, APP_LOG_LEVEL);
 #define CHECK_RULES
 
 struct k_sem disc_sem;
@@ -24,44 +24,14 @@ atomic_t empty_loop = ATOMIC_INIT(0);
 atomic_t my_attr_list_ctr = ATOMIC_INIT(0);
 atomic_t my_sem_counter = ATOMIC_INIT(0);
 
+atomic_t my_subscribed = ATOMIC_INIT(0);
+
 struct bt_conn *main_conn = NULL;
 
 struct bt_gatt_discover_params *chrc_params, *ccc_params;
 
 struct bt_gatt_service *_service;
 
-struct my_rule my_rules[MAX_RULES];
-int num_rules = 0;
-
-
-int my_add_rule(bool dir, uint16_t handle, bool set_new_val, int new_val ){
-
-    if(num_rules == MAX_RULES){
-        return -1;
-    }
-    struct my_rule *tmp = &my_rules[num_rules];
-
-    tmp->dir = dir;
-    tmp->handle = handle;
-    tmp->set_new_val = set_new_val;
-    tmp->new_val = new_val;
-
-    num_rules++;
-    return 0;
-}
-
-int my_check_rules(uint8_t dir, uint16_t handle){
-    if(!num_rules){
-        return 0;
-    }
-    for(int i =0; i < num_rules; i++){
-        struct my_rule *tmp = &my_rules[i];
-        if(tmp->dir == dir && tmp->handle == handle){
-            return -1;
-        }
-    }
-    return 0;
-}
 
 static uint8_t tmp_func(const struct bt_gatt_attr *attr, uint16_t handle, void *user_data)
 {
@@ -75,7 +45,7 @@ static uint8_t tmp_func(const struct bt_gatt_attr *attr, uint16_t handle, void *
     
     LOG_DBG("found attr with uuid: %s, handle: %u", uuid_str, handle);
 
-    if(!bt_uuid_cmp(attr->uuid,BT_UUID_GATT_CCC)){
+    if(bt_uuid_cmp(attr->uuid,BT_UUID_GATT_CCC) == 0){
 
         print_ccc_cfg_data(attr->user_data);
         
@@ -138,18 +108,19 @@ static uint8_t my_ccc_callback(struct bt_conn * conn,
                                    struct bt_gatt_subscribe_params * params,
                                    const void *data, uint16_t len)
 {
-    LOG_DBG("ATLEAST ONCE");
+    LOG_DBG("recieved notification");
     if (!data)
     {
-        LOG_INF("ccc data error handle %u", params->value_handle);
+        LOG_ERR("ccc data error handle %u", params->value_handle);
         return BT_GATT_ITER_STOP;
     }
-    LOG_INF("ccc update callback recieved: attribute with handle: %u \n", params->value_handle);
+    
     const struct bt_gatt_attr *tmp_attr = my_db_write_entry(params->value_handle, data, len, false);
     uint16_t tmp_handle = my_get_char_handle(tmp_attr->handle);
     struct bt_gatt_attr *tmp_attr2 = my_db_get_attr(tmp_handle);
 
     LOG_DBG("attrhandle: %u, attr2handle: %u, tmp_handle %u", tmp_attr->handle, tmp_attr2->handle,tmp_handle);
+    LOG_HEXDUMP_DBG(data,len,"data:");
 
     char uuid_str[BT_UUID_STR_LEN];
     bt_uuid_to_str(tmp_attr2->uuid, uuid_str, BT_UUID_STR_LEN);
@@ -158,18 +129,38 @@ static uint8_t my_ccc_callback(struct bt_conn * conn,
     bt_uuid_to_str(tmp_chrc->uuid, uuid_str2, BT_UUID_STR_LEN); 
     LOG_DBG("attr2 uuid: %s, chrc uuid: %s, chrc valuehandle: %u", uuid_str, uuid_str2, tmp_chrc->value_handle);
 
-    bt_gatt_foreach_attr(1,0xffff,tmp_func,NULL);
+    //bt_gatt_foreach_attr(1,0xffff,tmp_func,NULL);
 
     #ifdef CHECK_RULES
-    if(my_check_rules(1,tmp_attr2->handle)){
-        return BT_GATT_ITER_STOP;
+    void *new_ptr;
+    int new_len;
+    bool block = false;
+    struct my_rule_res res = my_check_rules(1,tmp_attr2->handle);
+    if(res.type == RULE_BLOCK){
+        block = true;
+    }else if(res.type == RULE_REPLACE){
+        new_ptr = &res.data;
+        new_len = sizeof(res.data);
+    }
+    else{
+        new_ptr = data;
+        new_len = len;
     }
     #endif
-    int err = bt_gatt_notify(NULL, tmp_attr2, data, len);
-    if(err){
-        LOG_ERR("gatt notify error: %i", err);
-    }
+    if(atomic_test_bit(&my_subscribed,0)){
+        LOG_INF("ccc update callback recieved: attribute with handle: %u \n", params->value_handle);
+        if(!block){
+            int err = bt_gatt_notify(NULL, tmp_attr2, new_ptr, new_len);
+            if(err){
+                LOG_ERR("gatt notify error: %i", err);
+            }else{
+                LOG_INF("user notified");
+            }
+        }else{
+            LOG_INF("user not notified reason: communication blocked in direction : %i", 1);
+        }
 
+    }
     return BT_GATT_ITER_CONTINUE;
 }
 
@@ -182,7 +173,9 @@ int my_adv_subscribe_to_all()
 
 static void my_ccc_changed(const struct bt_gatt_attr *attr, uint16_t value)
 {
-    LOG_INF("ccc callback: user wants to subscribe to attribute with handle: %u \n", attr->handle);
+    LOG_INF("ccc callback: user wants to subscribe to attribute with handle: %u, value: %u \n", attr->handle, value);
+    
+    atomic_set(&my_subscribed, value);
     /*
     if (value == BT_GATT_CCC_NOTIFY){
         uint16_t value_handle = my_get_char_handle(attr->handle);
@@ -196,6 +189,7 @@ static void my_ccc_changed(const struct bt_gatt_attr *attr, uint16_t value)
         };
 
     }*/
+    LOG_DBG("ERROR");
     return;
 }
 
@@ -215,7 +209,8 @@ static void my_ccc_changed(const struct bt_gatt_attr *attr, uint16_t value)
                                             void *buf, uint16_t len,
                                             uint16_t offset)
     {
-        LOG_DBG("trying to read: attribute with handle: %u len: %u\n", attr->handle, len);
+        LOG_INF("user trying to read: attribute with handle: %u len: %u\n", attr->handle, len);
+
         struct bt_conn_info info, main_info;
         bt_conn_get_info(conn, &info);
         bt_conn_get_info(main_conn, &main_info);
@@ -250,35 +245,88 @@ static void my_ccc_changed(const struct bt_gatt_attr *attr, uint16_t value)
     //memset(buf,0x01,1);
     return length;
 #else
+
     int length = my_db_read_entry(attr->handle, buf, len, false);
+    LOG_HEXDUMP_INF(buf,length,"data: ");
+    void *new_ptr;
+    int new_len;
+    bool block = false;
+    struct my_rule_res res = my_check_rules(1, attr->handle);
+    if (res.type == RULE_BLOCK)
+    {
+        LOG_INF("user blocked from reading from handle :%u", attr->handle);
+        block = true;
+        return 0;
+    }
+    else if (res.type == RULE_REPLACE)
+    {
+        new_len = MIN(sizeof(res.data),length);
+        memcpy(buf, &res.data,new_len);
+        LOG_HEXDUMP_INF(buf, new_len, "replacing real data with: ");
+        return new_len;
+    }
+    else
+    {
+        LOG_INF("sending data to user");
     return length;
+    }
 
 #endif
 }
 
-static void my_write_callback(struct bt_conn *conn, uint8_t err, struct bt_gatt_write_params *params){
-
+static void my_write_response_callback(struct bt_conn *conn, uint8_t err, struct bt_gatt_write_params *params)
+{
     LOG_DBG("empty writecallback triggered");
+    if(err){
+        LOG_ERR("Error write callback code: %u", err);
+    }
     return ;
 };
 
-static size_t my_write_response_callback(struct bt_conn *conn,
+static size_t my_write_callback(struct bt_conn *conn,
                                 const struct bt_gatt_attr *attr,
                                 const void *buf, uint16_t len,
                                 uint16_t offset, uint8_t flags)
 {
-    LOG_INF("trying to write: attribute with handle: %u \n", attr->handle);
+    LOG_INF("user trying to write to attribute with handle: %u \n", attr->handle);
+    LOG_HEXDUMP_INF(buf, len, "data:");
 
     if(MY_CHECK_BIT(flags,1)){
         //bt_gatt_write_without_response(main_conn, attr->handle, buf, len,false);
     }else{
+
+        void *new_ptr;
+        int new_len;
+        bool block = false;
+        struct my_rule_res res = my_check_rules(0, attr->handle);
+        if (res.type == RULE_BLOCK)
+        {
+            block = true;
+        }
+        else if (res.type == RULE_REPLACE)
+        {
+            new_ptr = &res.data;
+            new_len = sizeof(res.data);
+            LOG_HEXDUMP_INF(buf, new_len, "replacing real data with: ");
+        }
+        else
+        {
+            new_ptr = buf;
+            new_len = len;
+        }
+        if(block){
+            LOG_INF("user blocked from writing to target on handle :%u",attr->handle);
+            return 0;
+        }
+
         struct bt_gatt_write_params _write_params = {
             .handle = attr->handle,
-            .data = buf,
-            .length = len,
+            .data = new_ptr,
+            .length = new_len,
             .offset = offset,
             .func = my_write_response_callback,
         };
+        LOG_INF("writing to target");
         int err = bt_gatt_write(main_conn, &_write_params);
     }
 
@@ -325,7 +373,7 @@ static struct my_char_perm check_chrc_perm(uint16_t prop, struct bt_gatt_attr *a
             case 3:
                 new_prop |= BT_GATT_CHRC_WRITE;
                 perm |= BT_GATT_PERM_WRITE;
-                attr->write = my_write_response_callback;
+                attr->write = my_write_callback;
                 break;
             case 4:
                 new_prop |= BT_GATT_CHRC_NOTIFY;
@@ -650,6 +698,7 @@ static uint8_t my_discover_func(struct bt_conn *conn,
     }
     return BT_GATT_ITER_CONTINUE;
 }
+
 
 int my_start_discovery()
 {

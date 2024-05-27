@@ -8,7 +8,7 @@ target_sources(app PRIVATE
   src/main.c
   src/observer.c
   src/mitm.c
-  src/adv.c
+  src/my_adv.c
   src/db.c
   src/my_uart.c
 )

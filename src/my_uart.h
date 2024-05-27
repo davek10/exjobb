@@ -2,7 +2,7 @@
 #define MY_UART
 
 extern struct k_msgq uart_msgq;
-#define UART_MSG_SIZE 32
+#define UART_MSG_SIZE 64
 #define MY_SEND
 #define MY_RECEIVE
 

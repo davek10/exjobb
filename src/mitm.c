@@ -6,16 +6,16 @@
 #include <zephyr/bluetooth/conn.h>
 #include <zephyr/logging/log.h>
 #include <zephyr/kernel.h>
-
+#include "myutil.h"
 
 #define MY_ACTIVATE_MITM
 
-
-LOG_MODULE_DECLARE(log1, LOG_LEVEL_DBG);
+LOG_MODULE_DECLARE(log1, APP_LOG_LEVEL);
 
 static bt_addr_le_t  my_target;
 static bool my_target_set = false;
 static bool my_mitm_started = false;
+struct bt_le_ext_adv *my_adv_set;
 
 struct my_mitm_info target_mitm_info;
 K_SEM_DEFINE(target_sem, 0, 1);
@@ -47,17 +47,21 @@ unsigned long my_set_bit(unsigned long map, uint8_t bit)
 
 int my_activate_mitm()
 {
+  static int cnt = 0;
+
   if(!my_target_set){
     LOG_ERR("cant start mitm, no active target \n");
     return -1;
   }
 
-  if (target_mitm_info.ad_amount < 1 || target_mitm_info.sd_amount < 1)
+  if ((target_mitm_info.ad_amount < 1 || target_mitm_info.sd_amount < 1) && cnt < MY_MITM_AD_WAIT_LIMIT)
   {
+    cnt++;
     return 0;
   }
 
   my_mitm_started = true;
+  cnt = 0;
   k_sem_give(&target_sem);
   return 0;
  }
@@ -65,6 +69,12 @@ int my_activate_mitm()
  bool get_my_target_set()
  {
    return my_target_set;
+ }
+
+ void set_my_target_set(bool value)
+ {
+   my_target_set = value;
+   return;
  }
 
  void set_my_mitm_started(bool new_my_mitm_started)
@@ -79,11 +89,15 @@ int my_activate_mitm()
 
  int set_my_target(const char *target, const char *type)
  {
-  bt_addr_le_from_str(target,type, &target_mitm_info.addr);
-  strncpy(&target_mitm_info.addr_str, target, BT_ADDR_LE_STR_LEN);
+   if (strncmp(target, "-1", sizeof("-1")) == 0){
+     return set_my_target("F7:E1:36:7C:5B:AB", "random");
+   }
 
-  my_target_set = true;
-  return 0;
+   bt_addr_le_from_str(target, type, &target_mitm_info.addr);
+   strncpy(&target_mitm_info.addr_str, target, BT_ADDR_LE_STR_LEN);
+
+   LOG_INF("New target set: %s, %s", target, type);
+   return 0;
  }
 
  const bt_addr_le_t* get_my_target()
@@ -98,25 +112,31 @@ int my_activate_mitm()
  int my_mitm_start_ad(){
   //bt_set_name(target_mitm_info.name);
 
-  size_t total_ad_size = target_mitm_info.nr_ad_fields * sizeof(struct bt_data);
-  struct bt_data *my_ad = k_malloc(total_ad_size);
-  if (!my_ad)
+  struct bt_data *my_ad = NULL;
+  struct bt_data *my_sd = NULL;
+
+      if (target_mitm_info.nr_ad_fields > 0)
   {
-    LOG_ERR("Failed to allocate memory for advertisement data\n");
-    return -1;
+    size_t total_ad_size = target_mitm_info.nr_ad_fields * sizeof(struct bt_data);
+    my_ad = k_malloc(total_ad_size);
+    if (!my_ad)
+    {
+      LOG_ERR("Failed to allocate memory for advertisement data\n");
+      return -1;
+    }
+    int my_ad_size = my_fill_array(&target_mitm_info.ad_slist, my_ad);
   }
+  if(target_mitm_info.nr_sd_fields > 0){
+    size_t total_sd_size = target_mitm_info.nr_sd_fields * sizeof(struct bt_data);
+    my_sd = k_malloc(total_sd_size);
+    if (!my_sd)
+    {
+      LOG_ERR("Failed to allocate memory for scan response data\n");
+      return -1;
+    }
 
-  size_t total_sd_size = target_mitm_info.nr_sd_fields * sizeof(struct bt_data);
-  struct bt_data *my_sd = k_malloc(total_sd_size);
-  if (!my_sd)
-  {
-    LOG_ERR("Failed to allocate memory for scan response data\n");
-    return -1;
+    int my_sd_size = my_fill_array(&target_mitm_info.sd_slist, my_sd);
   }
-
-  int my_ad_size = my_fill_array(&target_mitm_info.ad_slist, my_ad);
-  int my_sd_size = my_fill_array(&target_mitm_info.sd_slist, my_sd);
-
   int err = 0;
 
 #ifdef MY_ACTIVATE_MITM
@@ -126,11 +146,34 @@ int my_activate_mitm()
     return _identity_id;
   }
 
-  struct bt_le_adv_param my_params = BT_LE_ADV_PARAM_INIT(   \
-    (BT_LE_ADV_OPT_CONNECTABLE | BT_LE_ADV_OPT_USE_IDENTITY), \
-    BT_GAP_ADV_FAST_INT_MIN_2, BT_GAP_ADV_FAST_INT_MAX_2, NULL);
-  my_params.id = _identity_id;
-  err = bt_le_adv_start(&my_params, my_ad, target_mitm_info.nr_ad_fields, my_sd, target_mitm_info.nr_sd_fields);
+  if(target_mitm_info.ext_adv || target_mitm_info.coded_phy){
+
+    struct bt_le_adv_param my_params = BT_LE_ADV_PARAM_INIT(
+        (BT_LE_ADV_OPT_CONNECTABLE | BT_LE_ADV_OPT_USE_IDENTITY | BT_LE_ADV_OPT_EXT_ADV | (target_mitm_info.coded_phy ? BT_LE_ADV_OPT_CODED:0)),
+        BT_GAP_ADV_FAST_INT_MIN_2, BT_GAP_ADV_FAST_INT_MAX_2, NULL);
+    my_params.id = _identity_id;
+
+    err = bt_le_ext_adv_create(&my_params, NULL,&my_adv_set);
+    if(err){
+      LOG_ERR("could not create extended adv set, err: %d", err);
+      return err;
+    }
+    err = bt_le_ext_adv_set_data(my_adv_set, my_ad, target_mitm_info.nr_ad_fields, my_sd, target_mitm_info.nr_sd_fields);
+    if (err)
+    {
+      LOG_ERR("could not set extended adv data, err: %d", err);
+      return err;
+    }
+   err =  bt_le_ext_adv_start(my_adv_set,NULL);
+  }else{
+
+    struct bt_le_adv_param my_params = BT_LE_ADV_PARAM_INIT(
+        (BT_LE_ADV_OPT_CONNECTABLE | BT_LE_ADV_OPT_USE_IDENTITY),
+        BT_GAP_ADV_FAST_INT_MIN_2, BT_GAP_ADV_FAST_INT_MAX_2, NULL);
+    my_params.id = _identity_id;
+    
+    err = bt_le_adv_start(&my_params, my_ad, target_mitm_info.nr_ad_fields, my_sd, target_mitm_info.nr_sd_fields);
+  }
 #endif
 
   if(err){

@@ -1,4 +1,9 @@
 /*
+ * Contains code inspired by and/or copied and modified from NRF SDK Observer demo:
+ * https://github.com/zephyrproject-rtos/zephyr/tree/main/samples/bluetooth/observer
+ *
+ * Original copyright:
+ *
  * Copyright (c) 2022 Nordic Semiconductor ASA
  * Copyright (c) 2015-2016 Intel Corporation
  *
@@ -8,9 +13,22 @@
 #include "observer.h"
 #include <zephyr/bluetooth/uuid.h>
 #include <zephyr/logging/log.h>
-#include <bluetooth/services/lbs.h>
+//#include <bluetooth/services/lbs.h>
 #include <zephyr/sys/slist.h>
-LOG_MODULE_DECLARE(log1, LOG_LEVEL_DBG);
+#include "myutil.h"
+#include <zephyr/kernel.h>
+
+LOG_MODULE_DECLARE(log1, APP_LOG_LEVEL);
+
+//atomic_t my_obs_disp = ATOMIC_INIT(0);
+
+struct my_block_node {
+	bt_addr_le_t addr;
+	char text[MY_OBS_BLOCK_STR_LEN];
+};
+
+int my_obs_blocklist_ctr = 0;
+struct my_block_node my_obs_blocklist[MY_OBS_BLOCKLIST_CNT];
 
 //#define MY_DEBUG
 
@@ -55,6 +73,43 @@ static const char *phy2str(uint8_t phy)
 	}
 }
 
+bool my_obs_check_blocklist(const bt_addr_le_t *addr){
+
+	if(my_obs_blocklist_ctr == 0) return false;
+
+	for(int i = 0; i< my_obs_blocklist_ctr; i++){
+		if(bt_addr_le_cmp(&my_obs_blocklist[i].addr,addr) == 0){
+			return true;
+		}
+	}
+	return false;
+}
+
+int my_obs_print_blocklist(){
+	for (int i = 0; i < my_obs_blocklist_ctr; i++)
+	{
+		LOG_INF("%s",my_obs_blocklist[i].text);
+		k_msleep(50);
+	}
+	LOG_DBG("last obj printed");
+	return 0;
+}
+
+int my_obs_add_to_blocklist(bt_addr_le_t *addr, const char* text){
+
+	if(my_obs_blocklist_ctr == MY_OBS_BLOCKLIST_CNT) return -1;
+
+	my_obs_blocklist[my_obs_blocklist_ctr].addr = *addr;
+	strncpy(my_obs_blocklist[my_obs_blocklist_ctr].text,text,MY_OBS_BLOCK_STR_LEN);
+	my_obs_blocklist_ctr++;
+	return 0;	
+}
+
+void my_clear_block(){
+	
+	my_obs_blocklist_ctr = 0;
+}
+
 static void scan_recv(const struct bt_le_scan_recv_info *info,
 		      struct net_buf_simple *buf)
 {
@@ -73,22 +128,28 @@ static void scan_recv(const struct bt_le_scan_recv_info *info,
 
 	bt_addr_le_to_str(info->addr, le_addr, sizeof(le_addr));
 
-	#ifdef MY_DEBUG
-	LOG_INF("[DEVICE]: %s, AD evt type %u, Tx Pwr: %i, RSSI %i "
-	       "Data status: %u, AD data len: %u Name: %s "
-	       "C:%u S:%u D:%u SR:%u E:%u Pri PHY: %s, Sec PHY: %s, "
-	       "Interval: 0x%04x (%u ms), SID: %u\n",
-	       le_addr, info->adv_type, info->tx_power, info->rssi,
-	       data_status, data_len, name,
-	       (info->adv_props & BT_GAP_ADV_PROP_CONNECTABLE) != 0,
-	       (info->adv_props & BT_GAP_ADV_PROP_SCANNABLE) != 0,
-	       (info->adv_props & BT_GAP_ADV_PROP_DIRECTED) != 0,
-	       (info->adv_props & BT_GAP_ADV_PROP_SCAN_RESPONSE) != 0,
-	       (info->adv_props & BT_GAP_ADV_PROP_EXT_ADV) != 0,
-	       phy2str(info->primary_phy), phy2str(info->secondary_phy),
-	       info->interval, info->interval * 5 / 4, info->sid);
-	#endif
 
+	if(my_obs_check_blocklist(info->addr) == 0)
+	{
+		char text[MY_OBS_BLOCK_STR_LEN];
+		snprintk(&text,MY_OBS_BLOCK_STR_LEN,"[DEVICE]: %s, AD evt type %u, Tx Pwr: %i, RSSI %i "
+		"Data status: %u, AD data len: %u Name: %s "
+		"C:%u S:%u D:%u SR:%u E:%u Pri PHY: %s, Sec PHY: %s, "
+		"Interval: 0x%04x (%u ms), SID: %u\n",
+		le_addr, info->adv_type, info->tx_power, info->rssi,
+		data_status, data_len, name,
+		(info->adv_props & BT_GAP_ADV_PROP_CONNECTABLE) != 0,
+		(info->adv_props & BT_GAP_ADV_PROP_SCANNABLE) != 0,
+		(info->adv_props & BT_GAP_ADV_PROP_DIRECTED) != 0,
+		(info->adv_props & BT_GAP_ADV_PROP_SCAN_RESPONSE) != 0,
+		(info->adv_props & BT_GAP_ADV_PROP_EXT_ADV) != 0,
+		phy2str(info->primary_phy), phy2str(info->secondary_phy),
+		info->interval, info->interval * 5 / 4, info->sid);
+
+		my_obs_add_to_blocklist(info->addr,text);
+	}
+	
+	
 }
 
 	static struct bt_le_scan_cb scan_callbacks = {
@@ -102,6 +163,7 @@ static bool my_data_cb(struct bt_data *data, void *user_data){
 	uint8_t len = data->data_len;
 
 	void *_data_ptr = NULL;
+	char str_uuid[BT_UUID_STR_LEN];
 
 	switch (data->type)
 	{
@@ -124,8 +186,21 @@ static bool my_data_cb(struct bt_data *data, void *user_data){
 		_data_ptr = &(mitm_info->man_data);
 		break;
 
+	case BT_DATA_UUID16_ALL:
+		bt_uuid_create(&mitm_info->uuid16.uuid, data->data, data->data_len);
+		bt_uuid_to_str((struct bt_uuid *)&mitm_info->uuid16, str_uuid, BT_UUID_STR_LEN);
+		_data_ptr = &(mitm_info->uuid16.val);
+		break;
+
+	case BT_DATA_UUID32_ALL:
+		bt_uuid_create(&mitm_info->uuid32.uuid, data->data, data->data_len);
+		bt_uuid_to_str((struct bt_uuid *)&mitm_info->uuid32, str_uuid, BT_UUID_STR_LEN);
+
+		_data_ptr = &(mitm_info->uuid32.val);
+		break;
+
 	case BT_DATA_UUID128_ALL:
-		char str_uuid[BT_UUID_STR_LEN];
+		
 
 		bt_uuid_create(&mitm_info->uuid128.uuid, data->data, data->data_len);
 		bt_uuid_to_str((struct bt_uuid *) &mitm_info->uuid128, str_uuid, BT_UUID_STR_LEN);
@@ -166,6 +241,7 @@ static void my_scan_rcv_cb(const struct bt_le_scan_recv_info *info,
 			{
 	
 			case BT_GAP_ADV_TYPE_SCAN_RSP:
+			LOG_DBG("is scan resp");
 				my_scan_resp = true;
 				break;
 			case BT_GAP_ADV_TYPE_EXT_ADV:
@@ -183,10 +259,16 @@ static void my_scan_rcv_cb(const struct bt_le_scan_recv_info *info,
 			};
 
 		bt_data_parse(buf, my_data_cb, &cb_info);
+		LOG_DBG("data parsed");
 
 		//bt_data_parse(buf, my_data_cb, &target_mitm_info);
 		bt_addr_le_copy(&target_mitm_info.addr, info->addr);
-		bt_addr_le_to_str(info->addr, target_mitm_info.addr_str, sizeof(target_mitm_info.addr_str));
+		bt_addr_le_to_str(&target_mitm_info.addr, target_mitm_info.addr_str, sizeof(target_mitm_info.addr_str));
+		target_mitm_info.phy1 = info->primary_phy;
+		target_mitm_info.phy2 = info->secondary_phy;
+		target_mitm_info.coded_phy = (target_mitm_info.phy1 == BT_GAP_LE_PHY_CODED && \
+									 (target_mitm_info.phy2 == BT_GAP_LE_PHY_CODED || target_mitm_info.phy2 == BT_GAP_LE_PHY_NONE));
+			LOG_DBG("copied address: %s", target_mitm_info.addr_str);
 		// my_print_mitm_info(&target_mitm_info);
 		
 		if(my_scan_resp){
@@ -212,10 +294,10 @@ static struct bt_le_scan_cb my_scan_callbacks = {
 int observer_start(void)
 {
 	struct bt_le_scan_param scan_param = {
-		.type       = BT_LE_SCAN_TYPE_ACTIVE,
-		.options    = BT_LE_SCAN_OPT_NONE,
-		.interval   = BT_GAP_SCAN_FAST_INTERVAL,
-		.window     = BT_GAP_SCAN_FAST_WINDOW,
+		.type = BT_LE_SCAN_TYPE_ACTIVE,
+		.options = BT_LE_SCAN_OPT_CODED,
+		.interval = BT_GAP_SCAN_FAST_INTERVAL,
+		.window = BT_GAP_SCAN_FAST_WINDOW,
 	};
 	int err;
 
@@ -225,7 +307,7 @@ int observer_start(void)
 	LOG_INF("Registered scan callbacks\n");
 #endif /* CONFIG_BT_EXT_ADV */
 
-	err = bt_le_scan_start(&scan_param, device_found);
+	err = bt_le_scan_start(&scan_param, NULL);
 	if (err) {
 		LOG_ERR("Start scanning failed (err %d)\n", err);
 		return err;

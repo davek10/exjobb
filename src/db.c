@@ -1,12 +1,68 @@
 #include "db.h"
 #include <zephyr/logging/log.h>
 #include <zephyr/bluetooth/gatt.h>
+#include "myutil.h"
 
-LOG_MODULE_DECLARE(log1, LOG_LEVEL_DBG);
+LOG_MODULE_DECLARE(log1, APP_LOG_LEVEL);
 
 static sys_slist_t my_db = {NULL, NULL};
 static sys_slist_t my_ccc_list = {NULL, NULL};
 
+struct my_rule my_rules[MAX_RULES];
+int num_rules = 0;
+
+
+void print_rule(struct my_rule *rule){
+
+        LOG_INF("rule: \n \t handle: %u, dir: %u, type:%s, new_value: %u",rule->handle,rule->dir,(rule->set_new_val ? "REPLACE":"BLOCK"),\
+        (rule->set_new_val ? rule->new_val:0));
+}
+
+int my_add_rule(bool dir, uint16_t handle, bool set_new_val, uint32_t new_val)
+{
+
+    if (num_rules == MAX_RULES)
+    {
+        return -1;
+    }
+    struct my_rule *tmp = &my_rules[num_rules];
+
+    tmp->dir = dir;
+    tmp->handle = handle;
+    tmp->set_new_val = set_new_val;
+    tmp->new_val = new_val;
+
+    num_rules++;
+    LOG_INF("new rule added: ");
+    print_rule(tmp);
+    return 0;
+}
+
+struct my_rule_res my_check_rules(uint8_t dir, uint16_t handle)
+{
+    struct my_rule_res res = {0,RULE_PASS};
+    if (!num_rules)
+    {
+        return res;
+    }
+    for (int i = 0; i < num_rules; i++)
+    {
+        struct my_rule *tmp = &my_rules[i];
+        print_rule(tmp);
+        if (tmp->dir == dir && tmp->handle == handle)
+        {
+            if(tmp->set_new_val){
+                res.type = RULE_REPLACE;
+                res.data = tmp->new_val;
+            }else{
+                res.type = RULE_BLOCK;
+            }
+            
+            return res;
+        }
+    }
+    return res;
+}
 
 void my_db_foreach(void (*func)(uint16_t handle, struct bt_gatt_attr *attr, void* user_data),void *data){
     struct my_db_node *cn;
@@ -185,7 +241,8 @@ static void my_clean_sub_param(struct bt_gatt_subscribe_params *params){
                          struct bt_gatt_subscribe_params *params)
 {
     LOG_DBG("sub_callback response with err: %u, char_handle = %u, ccc_handle = %u, notification value = %u",err,params->value_handle, params->ccc_handle, params->value);
-    my_clean_sub_param(params);
+    //my_clean_sub_param(params);
+    LOG_INF("MITM module ready");
     return;
 }
 

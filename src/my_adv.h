@@ -10,14 +10,6 @@ extern struct k_sem adv_sem;
 
 
 #define MY_ATTR_LIMIT 2
-#define MAX_RULES 5
-
-struct my_rule{
-    int new_val;
-    uint16_t handle;
-    uint8_t dir;
-    uint8_t set_new_val;
-};
 
 typedef enum
 {
@@ -46,6 +38,5 @@ void my_set_main_conn(struct bt_conn *new_conn);
 struct bt_conn *my_get_main_conn();
 int my_adv_subscribe_to_all();
 void print_ccc_cfg_data(struct _bt_gatt_ccc *data);
-int my_add_rule(bool dir, uint16_t handle, bool set_new_val, int new_val);
 
 #endif
