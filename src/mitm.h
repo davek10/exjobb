@@ -61,7 +61,7 @@ const bt_addr_le_t* get_my_target();
 int set_my_target(const char *target, const char* type);
 void set_my_target_set(bool value);
 void my_print_mitm_info(const struct my_mitm_info *mitm_info);
-int my_mitm_add_ad(uint8_t type,void *data, uint8_t data_len, bool is_sd);
+int my_mitm_add_ad(uint8_t type,void *data, uint8_t data_len, bool is_sd, bool is_bt_data);
 int my_mitm_start_ad();
 void my_set_mitm_bit(bool is_sr, uint8_t type);
 int my_init_mitm();

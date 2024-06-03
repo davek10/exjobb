@@ -18,6 +18,9 @@
 #include "myutil.h"
 #include <zephyr/kernel.h>
 
+
+#define MY_BT_DATA_SOL
+
 LOG_MODULE_DECLARE(log1, APP_LOG_LEVEL);
 
 //atomic_t my_obs_disp = ATOMIC_INIT(0);
@@ -161,6 +164,7 @@ static bool my_data_cb(struct bt_data *data, void *user_data){
 	struct my_callback_struct *cbs = user_data;
 	struct my_mitm_info* mitm_info = cbs->mitm_info;
 	uint8_t len = data->data_len;
+	bool is_bt_data = false;
 
 	void *_data_ptr = NULL;
 	char str_uuid[BT_UUID_STR_LEN];
@@ -187,21 +191,33 @@ static bool my_data_cb(struct bt_data *data, void *user_data){
 		break;
 
 	case BT_DATA_UUID16_ALL:
+	#ifdef MY_BT_DATA_SOL
+		_data_ptr = data;
+		is_bt_data = true;
+	#else
 		bt_uuid_create(&mitm_info->uuid16.uuid, data->data, data->data_len);
 		bt_uuid_to_str((struct bt_uuid *)&mitm_info->uuid16, str_uuid, BT_UUID_STR_LEN);
 		_data_ptr = &(mitm_info->uuid16.val);
+	#endif
 		break;
-
 	case BT_DATA_UUID32_ALL:
+#ifdef MY_BT_DATA_SOL
+		_data_ptr = data;
+		is_bt_data = true;
+#else
 		bt_uuid_create(&mitm_info->uuid32.uuid, data->data, data->data_len);
 		bt_uuid_to_str((struct bt_uuid *)&mitm_info->uuid32, str_uuid, BT_UUID_STR_LEN);
 
 		_data_ptr = &(mitm_info->uuid32.val);
+#endif
 		break;
 
 	case BT_DATA_UUID128_ALL:
-		
 
+	#ifdef MY_BT_DATA_SOL
+		_data_ptr = data;
+		is_bt_data = true;
+	#else
 		bt_uuid_create(&mitm_info->uuid128.uuid, data->data, data->data_len);
 		bt_uuid_to_str((struct bt_uuid *) &mitm_info->uuid128, str_uuid, BT_UUID_STR_LEN);
 
@@ -209,15 +225,15 @@ static bool my_data_cb(struct bt_data *data, void *user_data){
 
 		// LOG_INF("uuid = %s \n", str_uuid);
 		// LOG_INF("");
+	#endif
 		break;
-
 	default:
 		LOG_DBG("unhandeled type: %u \n", data->type);
 		//_data_ptr = data->data;
 		break;
 	}
 	if(_data_ptr != NULL){
-		my_mitm_add_ad(data->type, _data_ptr, len, cbs->is_sr);
+		my_mitm_add_ad(data->type, _data_ptr, len, cbs->is_sr, is_bt_data);
 	}
 	return true;
 }

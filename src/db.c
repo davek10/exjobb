@@ -5,6 +5,8 @@
 
 LOG_MODULE_DECLARE(log1, APP_LOG_LEVEL);
 
+#define MY_DB_DEFAULT_LEN 4
+
 static sys_slist_t my_db = {NULL, NULL};
 static sys_slist_t my_ccc_list = {NULL, NULL};
 
@@ -14,11 +16,11 @@ int num_rules = 0;
 
 void print_rule(struct my_rule *rule){
 
-        LOG_INF("rule: \n \t handle: %u, dir: %u, type:%s, new_value: %u",rule->handle,rule->dir,(rule->set_new_val ? "REPLACE":"BLOCK"),\
-        (rule->set_new_val ? rule->new_val:0));
+        LOG_INF("rule: \n \t handle: %u, dir: %u, type:%s, new_value: %x",rule->handle,rule->dir,(rule->set_new_val ? "REPLACE":"BLOCK"),\
+        (rule->set_new_val ? rule->new_val[0]:0));
 }
 
-int my_add_rule(bool dir, uint16_t handle, bool set_new_val, uint32_t new_val)
+int my_add_rule(bool dir, uint16_t handle, bool set_new_val, uint8_t *new_val, size_t len)
 {
 
     if (num_rules == MAX_RULES)
@@ -31,6 +33,7 @@ int my_add_rule(bool dir, uint16_t handle, bool set_new_val, uint32_t new_val)
     tmp->handle = handle;
     tmp->set_new_val = set_new_val;
     tmp->new_val = new_val;
+    tmp->len = len;
 
     num_rules++;
     LOG_INF("new rule added: ");
@@ -40,7 +43,7 @@ int my_add_rule(bool dir, uint16_t handle, bool set_new_val, uint32_t new_val)
 
 struct my_rule_res my_check_rules(uint8_t dir, uint16_t handle)
 {
-    struct my_rule_res res = {0,RULE_PASS};
+    struct my_rule_res res = {0,RULE_PASS,0};
     if (!num_rules)
     {
         return res;
@@ -54,6 +57,7 @@ struct my_rule_res my_check_rules(uint8_t dir, uint16_t handle)
             if(tmp->set_new_val){
                 res.type = RULE_REPLACE;
                 res.data = tmp->new_val;
+                res.len = tmp->len;
             }else{
                 res.type = RULE_BLOCK;
             }
@@ -80,16 +84,20 @@ int my_db_add_entry(uint16_t handle, const void *data, uint16_t len, struct bt_g
     struct my_db_node *node = k_malloc(sizeof(struct my_db_node));
     memset(node,0,sizeof(struct my_db_node));
     struct my_db_entry *entry = &node->data;
-    entry->data = k_malloc(len);
-    entry->len = len;
+ 
+    entry->len = (len ? len : MY_DB_DEFAULT_LEN);
+    entry->data = k_malloc(entry->len);
+    entry->max_len = entry->len;
     entry->handle = handle;
     entry->attr = attr;
     k_sem_init(&node->sema,0,1);
     
+    
+
     if(data == NULL){
-        memset(entry->data, 0, len);
+        memset(entry->data, 0, entry->len);
     }else{
-        memcpy(entry->data, data, len);
+        memcpy(entry->data, data, entry->len);
     }
     sys_slist_append(&my_db, &node->node);
     return 0;
@@ -134,6 +142,11 @@ const struct bt_gatt_attr *my_db_write_entry(uint16_t handle, const void *buffer
         if (cn->data.handle == handle)
         {
             LOG_DBG("writing to db, handle: %u, first byte value: %x",cn->data.handle,((uint8_t *)buffer)[0]);
+            if (len > cn->data.max_len){
+                k_free(cn->data.data);
+                cn->data.data = k_malloc(len);
+                cn->data.max_len = len;
+            }
             cn->data.len = len;
             memcpy(cn->data.data, buffer, len);
             
@@ -186,12 +199,12 @@ const struct bt_gatt_attr * my_db_get_attr(uint16_t handle){
     return NULL;
 }
 
-int my_add_ccc_entry(uint16_t ccc_handle, uint16_t char_handle){
+int my_add_ccc_entry(uint16_t ccc_handle, uint16_t char_handle, uint16_t value_handle){
     struct my_ccc_node *node = k_malloc(sizeof(struct my_ccc_node));
     memset(node, 0, sizeof(struct my_ccc_node));
     node->data.ccc_handle = ccc_handle;
     node->data.char_handle = char_handle;
-    node->data.value_handle = char_handle+1;
+    node->data.value_handle = value_handle;
 
     sys_slist_append(&my_ccc_list, node);
     return 0;

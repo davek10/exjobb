@@ -189,8 +189,8 @@ int my_activate_mitm()
   return 0;
  }
 
-
- int my_mitm_add_ad(uint8_t type, void *data, uint8_t data_len, bool is_sd)
+ 
+ int my_mitm_add_ad(uint8_t type, void *data, uint8_t data_len, bool is_sd, bool is_bt_data)
  {
 
   if ((is_sd && my_check_bit(target_mitm_info.sd_map, type)) || (!is_sd && my_check_bit(target_mitm_info.ad_map, type)))
@@ -200,8 +200,19 @@ int my_activate_mitm()
 
   struct my_node *node = k_malloc(sizeof(struct my_node));
 
-  struct bt_data tmp_data = BT_DATA(type, data, data_len);
-  node->data = tmp_data;
+  if(is_bt_data){
+    struct bt_data *tmp_data = data;
+    struct bt_data tmp_data_cpy;
+    tmp_data_cpy.data_len = tmp_data->data_len;
+    tmp_data_cpy.type = tmp_data->type;
+    uint8_t *data_cpy = k_malloc(tmp_data->data_len);
+    memcpy(data_cpy, tmp_data->data, tmp_data->data_len);
+    tmp_data_cpy.data = data_cpy;
+    node->data = tmp_data_cpy;
+  }else{
+    struct bt_data tmp_data = BT_DATA(type, data, data_len);
+    node->data = tmp_data;
+  }
 
   if(is_sd){
     sys_slist_append(&target_mitm_info.sd_slist, &(node->node));

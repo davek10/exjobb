@@ -16,7 +16,8 @@ typedef enum
 
 struct my_rule
 {
-    uint32_t new_val;
+    uint8_t *new_val;
+    uint16_t len;
     uint16_t handle;
     uint8_t dir;
     uint8_t set_new_val;
@@ -25,13 +26,15 @@ struct my_rule
 struct my_rule_res
 {
     my_rule_res_type type;
-    uint32_t data;
+    uint8_t *data;
+    uint16_t len;
 };
 
 struct my_db_entry
 {
     uint16_t handle;
     int len;
+    int max_len;
     void *data;
     struct bt_gatt_attr *attr;
 };
@@ -67,11 +70,11 @@ const struct bt_gatt_attr* my_db_get_attr(uint16_t handle);
 
 uint16_t my_get_char_handle(uint16_t ccc_handle);
 uint16_t my_get_value_handle(uint16_t ccc_handle);
-int my_add_ccc_entry(uint16_t ccc_handle, uint16_t char_handle);
+int my_add_ccc_entry(uint16_t ccc_handle, uint16_t char_handle, uint16_t value_handle);
 int my_remove_ccc_entry(uint16_t ccc_handle);
 int my_subscribe_to_all(struct bt_conn *conn, bt_gatt_subscribe_func_t func);
 void my_db_foreach(void (*func)(uint16_t handle, struct bt_gatt_attr *attr, void *user_data), void *data);
-int my_add_rule(bool dir, uint16_t handle, bool set_new_val, uint32_t new_val);
+int my_add_rule(bool dir, uint16_t handle, bool set_new_val, uint8_t *new_val, size_t len);
 struct my_rule_res my_check_rules(uint8_t dir, uint16_t handle);
 
 #endif

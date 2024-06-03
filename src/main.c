@@ -136,6 +136,30 @@ void my_disconnect_all_cb(struct bt_conn *conn, void *data)
 		return res;
 	}
 
+	size_t my_str_to_bytes(char *str, uint8_t **data){
+		
+		size_t len = strnlen(str, UART_MSG_SIZE);
+		size_t byte_len = (len+1)/2;
+		uint8_t *tmp_data = k_malloc(byte_len);
+		for(int i = byte_len-1; i>=0 ; i--){
+			uint8_t b1,b2;
+			
+			int err = char2hex(str[2*i],&b1);
+			if(2*i+1 < len ){
+				err = char2hex(str[2 * i + 1], &b2);
+				b1 <<=4;
+			}else{
+				b2 = 0;
+			}
+			tmp_data[i] = b1 | b2;
+			LOG_DBG("char: %c",str[i]);
+			LOG_HEXDUMP_DBG(&tmp_data[i],1,"data:");
+		}
+		*data = tmp_data;
+		LOG_HEXDUMP_DBG(tmp_data,len,"bytes: ");
+		return byte_len;
+	}
+
 	uint32_t my_str_to_uint(char *buf, size_t max_len)
 	{
 		size_t len = strnlen(buf, max_len);
@@ -197,7 +221,7 @@ void my_disconnect_all_cb(struct bt_conn *conn, void *data)
 			uint32_t nr = my_str_to_uint(iter, UART_MSG_SIZE);
 			iter = strtok_r(NULL, " ", &tmp);
 			uint32_t dir = my_str_to_uint(iter, UART_MSG_SIZE);
-			my_add_rule((dir != 0), nr, 0, 0);
+			my_add_rule((dir != 0), nr, 0, 0,0);
 			return BLOCK;
 		}
 		else if (strncmp(iter, "replace", sizeof("replace")) == 0)
@@ -207,8 +231,13 @@ void my_disconnect_all_cb(struct bt_conn *conn, void *data)
 			iter = strtok_r(NULL, " ", &tmp);
 			uint32_t dir = my_str_to_uint(iter, UART_MSG_SIZE);
 			iter = strtok_r(NULL, " ", &tmp);
-			uint32_t new_val = my_str_to_uint(iter, UART_MSG_SIZE);
-			my_add_rule((dir != 0), nr, true, new_val);
+
+			
+			uint8_t *new_val;
+			size_t len = my_str_to_bytes(iter, &new_val);
+			LOG_DBG("len : %u",len);
+			LOG_HEXDUMP_DBG((void *)new_val, len, "returned bytes: ");
+			my_add_rule((dir != 0), nr, true, new_val, len);
 			return REPLACE;
 		}
 		else if (strncmp(iter, "set_target", sizeof("set_target")) == 0)
