@@ -123,12 +123,13 @@ static uint8_t my_ccc_callback(struct bt_conn * conn,
                                    struct bt_gatt_subscribe_params * params,
                                    const void *data, uint16_t len)
 {
-    LOG_DBG("recieved notification");
+    LOG_DBG("received notification");
     if (!data)
     {
         LOG_ERR("ccc data error handle %u", params->value_handle);
         return BT_GATT_ITER_STOP;
     }
+    
     
     const struct bt_gatt_attr *tmp_attr = my_db_write_entry(params->value_handle, data, len, false);
     uint16_t tmp_handle = my_get_char_handle(tmp_attr->handle);
@@ -163,7 +164,11 @@ static uint8_t my_ccc_callback(struct bt_conn * conn,
     }
     #endif
     if(atomic_test_bit(&my_subscribed,0)){
-        LOG_INF("ccc update callback recieved: attribute with handle: %u \n", params->value_handle);
+        LOG_INF("ccc update callback received: attribute with handle: %u", params->value_handle);
+        LOG_HEXDUMP_INF(data,len,"data received: ");
+        if(res.type == RULE_REPLACE){
+        LOG_HEXDUMP_INF(new_ptr, new_len, "replacing real data with: ");
+        }
         if(!block){
             int err = bt_gatt_notify(NULL, tmp_attr2, new_ptr, new_len);
             if(err){
