@@ -15,6 +15,7 @@
 #include <zephyr/bluetooth/hci.h>
 #include <zephyr/logging/log.h>
 #include <zephyr/kernel.h>
+#include <zephyr/bluetooth/controller.h>
 #include "my_adv.h"
 #include "db.h"
 #include "mitm.h"
@@ -22,8 +23,14 @@
 #include "observer.h"
 #include "errno.h"
 #include "myutil.h"
+#include <zephyr/bluetooth/addr.h>
+
+//#define MY_PUBLIC_FIX
 
 LOG_MODULE_REGISTER(log1, APP_LOG_LEVEL);
+
+struct k_sem my_bt_enable_sem;
+K_SEM_DEFINE(my_bt_enable_sem,0,1);
 
 enum command{
 	LIST_HANDLES,
@@ -86,6 +93,11 @@ void lst_conn_cb(struct bt_conn *conn, void *data){
 	print_uart(addr);
 	print_uart("\r\n");
 }
+
+static void my_bt_enable_cb(){
+		k_sem_give(&my_bt_enable_sem);
+		return ;
+	}
 
 void list_handles()
 {
@@ -278,20 +290,59 @@ int my_start(){
 		return err;
 	}
 
-	struct bt_hci_cp_le_set_random_address _bt_le_address = {
-		.bdaddr = target_mitm_info.addr.a,
-	};
+	int _identity_id=0;
+	//bt_addr_le_t *current_addr = BT_ADDR_ANY;
+	//_identity_id = bt_id_create(NULL, NULL);
+#ifdef MY_PUBLIC_FIX
+
+	LOG_INF("creating profile");
+	const bt_addr_le_t* _addr = get_my_target();
+	if (_addr->type != BT_ADDR_LE_RANDOM ||
+		!BT_ADDR_IS_STATIC(&_addr->a))
+	{
+		LOG_ERR("WARNING dangerous type ahead");
+		LOG_DBG("is_static_addr = %u", BT_ADDR_IS_STATIC(&_addr->a));
+
+		err = bt_disable();
+		bt_ctlr_set_public_addr(&_addr->a.val);
+		
+		err = bt_enable(my_bt_enable_cb);
+		k_sem_take(&my_bt_enable_sem,K_FOREVER);
+
+		
+		_identity_id = 0;
+	}
+	else
+	{
+
+		//_identity_id = bt_id_create(&target_mitm_info.addr, NULL);
+		if (_identity_id < 0)
+		{
+			LOG_ERR("Unable to create new bluetooth identity (err %d)\n", _identity_id);
+			return _identity_id;
+		}
+	}
+	//set_my_mitm_address_id(_identity_id);
+// endif MY_PUBLIC_FIX
+#endif
 
 	LOG_INF("Creating main connection to target ...\n");
-	struct bt_conn_le_conn_param *my_param = BT_LE_CONN_PARAM_DEFAULT;
+	
+	
+	struct bt_le_conn_param my_param = *BT_LE_CONN_PARAM_DEFAULT;
 	struct bt_conn *_tmp_conn;
 	char tmpp [BT_ADDR_LE_STR_LEN];
 	bt_addr_le_to_str(get_my_target(),tmpp,sizeof(tmpp));
 	LOG_DBG("target type: %u, data: %s",get_my_target()->type,tmpp);
-	struct bt_conn_le_create_param *my_create_param = BT_CONN_LE_CREATE_PARAM(BT_CONN_LE_OPT_CODED,
+	LOG_DBG("iscoded: %u",my_mitm_get_is_coded());
+	bool is_coded = my_mitm_get_is_coded();
+	uint32_t opt = (is_coded ? BT_CONN_LE_OPT_CODED : BT_CONN_LE_OPT_NONE);
+	
+	struct bt_conn_le_create_param my_create_param = *BT_CONN_LE_CREATE_PARAM(opt,
 																			  BT_GAP_SCAN_FAST_INTERVAL,
 																			  BT_GAP_SCAN_FAST_INTERVAL);
-	err = bt_conn_le_create(get_my_target(), my_create_param, my_param, &_tmp_conn);
+	
+	err = bt_conn_le_create(get_my_target(), &my_create_param, &my_param, &_tmp_conn);
 	if(err){
 		LOG_ERR("failed to connect to target err: %d ",err);
 	}

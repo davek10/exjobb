@@ -71,8 +71,7 @@ int my_service_ctr = 0;
 
     static bool my_invalid_uuid(struct bt_uuid *uuid)
 {
-    bool val =  (bt_uuid_cmp(uuid, BT_UUID_GAP_APPEARANCE) == 0 || bt_uuid_cmp(uuid, BT_UUID_GAP) == 0 ||
-    bt_uuid_cmp(uuid, BT_UUID_GATT_SC) == 0);
+    bool val =  (bt_uuid_cmp(uuid, BT_UUID_GATT) == 0 || bt_uuid_cmp(uuid, BT_UUID_GAP) == 0);
 
     char uuid_str[BT_UUID_STR_LEN];
     bt_uuid_to_str(uuid, uuid_str, BT_UUID_STR_LEN);
@@ -461,6 +460,9 @@ static int flush_attr_list(){
 
     struct my_attr_node *cn, *cns;
     struct bt_gatt_attr *attrs = k_malloc(my_attr_list_ctr * sizeof(struct bt_gatt_attr));
+    if(!attrs){
+        LOG_ERR("could not allocate memory");
+    }
     LOG_DBG("flushing list");
 
     int i = 0;

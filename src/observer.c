@@ -282,9 +282,10 @@ static void my_scan_rcv_cb(const struct bt_le_scan_recv_info *info,
 		bt_addr_le_to_str(&target_mitm_info.addr, target_mitm_info.addr_str, sizeof(target_mitm_info.addr_str));
 		target_mitm_info.phy1 = info->primary_phy;
 		target_mitm_info.phy2 = info->secondary_phy;
-		target_mitm_info.coded_phy = (target_mitm_info.phy1 == BT_GAP_LE_PHY_CODED && \
-									 (target_mitm_info.phy2 == BT_GAP_LE_PHY_CODED || target_mitm_info.phy2 == BT_GAP_LE_PHY_NONE));
-			LOG_DBG("copied address: %s", target_mitm_info.addr_str);
+		target_mitm_info.coded_phy = (info->primary_phy == BT_GAP_LE_PHY_CODED &&
+									  (info->secondary_phy == BT_GAP_LE_PHY_CODED || info->secondary_phy == BT_GAP_LE_PHY_NONE));
+		LOG_DBG("primary phy : %u, sec phy: %u, is_coded: %u", info->primary_phy, info->secondary_phy, my_mitm_get_is_coded());
+
 		// my_print_mitm_info(&target_mitm_info);
 		
 		if(my_scan_resp){

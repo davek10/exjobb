@@ -10,6 +10,7 @@
 
 #define MY_ACTIVATE_MITM
 
+
 LOG_MODULE_DECLARE(log1, APP_LOG_LEVEL);
 
 static bt_addr_le_t  my_target;
@@ -87,6 +88,10 @@ int my_activate_mitm()
    return my_mitm_started;
  }
 
+ void set_my_mitm_address_id(unsigned int id){
+  target_mitm_info.address_id = id;
+ }
+
  int set_my_target(const char *target, const char *type)
  {
    if (strncmp(target, "-1", sizeof("-1")) == 0){
@@ -103,6 +108,10 @@ int my_activate_mitm()
  const bt_addr_le_t* get_my_target()
  {
   return &target_mitm_info.addr;
+ }
+
+ bool my_mitm_get_is_coded(){
+  return target_mitm_info.coded_phy;
  }
 
  void my_print_mitm_info(const struct my_mitm_info *mitm_info){
@@ -140,18 +149,13 @@ int my_activate_mitm()
   int err = 0;
 
 #ifdef MY_ACTIVATE_MITM
-  int _identity_id = bt_id_create(&target_mitm_info.addr, NULL);
-  if(_identity_id < 0 ){
-    LOG_ERR("Unable to create new bluetooth identity (err %d)\n", _identity_id);
-    return _identity_id;
-  }
 
   if(target_mitm_info.ext_adv || target_mitm_info.coded_phy){
 
     struct bt_le_adv_param my_params = BT_LE_ADV_PARAM_INIT(
         (BT_LE_ADV_OPT_CONNECTABLE | BT_LE_ADV_OPT_USE_IDENTITY | BT_LE_ADV_OPT_EXT_ADV | (target_mitm_info.coded_phy ? BT_LE_ADV_OPT_CODED:0)),
         BT_GAP_ADV_FAST_INT_MIN_2, BT_GAP_ADV_FAST_INT_MAX_2, NULL);
-    my_params.id = _identity_id;
+    my_params.id = target_mitm_info.address_id;
 
     err = bt_le_ext_adv_create(&my_params, NULL,&my_adv_set);
     if(err){
@@ -170,10 +174,13 @@ int my_activate_mitm()
     struct bt_le_adv_param my_params = BT_LE_ADV_PARAM_INIT(
         (BT_LE_ADV_OPT_CONNECTABLE | BT_LE_ADV_OPT_USE_IDENTITY),
         BT_GAP_ADV_FAST_INT_MIN_2, BT_GAP_ADV_FAST_INT_MAX_2, NULL);
-    my_params.id = _identity_id;
+        
+      my_params.id = target_mitm_info.address_id;
     
     err = bt_le_adv_start(&my_params, my_ad, target_mitm_info.nr_ad_fields, my_sd, target_mitm_info.nr_sd_fields);
   }
+
+  // end if MY_ACTIVATE_MITM
 #endif
 
   if(err){

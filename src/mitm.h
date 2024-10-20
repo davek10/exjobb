@@ -38,6 +38,8 @@ struct my_mitm_info {
     unsigned long sd_map;
     unsigned int ad_amount;
     unsigned int sd_amount;
+    unsigned int address_id;
+    bool is_coded;
 };
 
     struct my_callback_struct
@@ -68,5 +70,6 @@ int my_init_mitm();
 int my_fill_array(sys_slist_t *my_slist, struct bt_data *data);
 unsigned long my_set_bit(unsigned long map, uint8_t bit);
 bool my_check_bit(unsigned long map, uint8_t bit);
+bool my_mitm_get_is_coded();
 
 #endif
