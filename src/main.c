@@ -352,8 +352,8 @@ int my_start(){
 	LOG_INF("main connection established waiting for discovery process ...\n");
 	k_sem_take(&adv_sem, K_FOREVER);
 	/*MY_MAN_BUF*/
-	LOG_DBG("subscribing to attributes");
-	err = my_adv_subscribe_to_all();
+	//LOG_DBG("subscribing to attributes");
+	//err = my_adv_subscribe_to_all();
 
 	LOG_INF("Starting MITM module ...\n");
 	err = my_mitm_start_ad();

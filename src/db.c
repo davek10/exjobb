@@ -78,29 +78,35 @@ void my_db_foreach(void (*func)(uint16_t handle, struct bt_gatt_attr *attr, void
 }
 
 
-int my_db_add_entry(uint16_t handle, const void *data, uint16_t len, struct bt_gatt_attr *attr)
+struct my_db_entry* my_db_add_entry(uint16_t handle, my_entry_type type, struct bt_gatt_attr *attr)
 {
-    LOG_DBG("adding entry with handle: %u", handle);
     struct my_db_node *node = k_malloc(sizeof(struct my_db_node));
     memset(node,0,sizeof(struct my_db_node));
     struct my_db_entry *entry = &node->data;
- 
-    entry->len = (len ? len : MY_DB_DEFAULT_LEN);
-    entry->data = k_malloc(entry->len);
-    entry->max_len = entry->len;
-    entry->handle = handle;
+    entry->type = type;
     entry->attr = attr;
-    k_sem_init(&node->sema,0,1);
-    
-    
+    entry->handle = handle;
 
-    if(data == NULL){
-        memset(entry->data, 0, entry->len);
-    }else{
-        memcpy(entry->data, data, entry->len);
+    if (type == ENTRY_PRIMARY)
+    {
     }
+    else if (type == ENTRY_CCC)
+    {
+    }
+    else if (type == ENTRY_CHARACTERISTIC)
+    {
+    }
+    else if (type == ENTRY_DATA)
+    {
+        entry->len = MY_DB_DEFAULT_LEN;
+        entry->data = k_malloc(entry->len);
+        entry->max_len = entry->len;
+        k_sem_init(&node->sema,0,1);
+        memset(entry->data, 0, entry->len);
+    }
+    
     sys_slist_append(&my_db, &node->node);
-    return 0;
+    return entry;
 }
 
 int my_db_read_entry(uint16_t handle, void *buffer, uint16_t len, bool wait)
@@ -126,6 +132,27 @@ int my_db_read_entry(uint16_t handle, void *buffer, uint16_t len, bool wait)
         }
     }
     return -1;
+}
+
+/* 
+    dir > 0 means from user to target
+    dir = 0 means from target to user
+
+*/
+uint16_t my_db_translate_handle(uint16_t handle, uint8_t dir){
+    struct my_db_node *cn;
+    SYS_SLIST_FOR_EACH_CONTAINER(&my_db, cn, node){
+        if(dir){
+            if (cn->data.attr->handle == handle){
+                return cn->data.handle;
+            }
+        }else{
+            if(cn->data.handle == handle){
+                return cn->data.attr->handle;
+            }
+        }
+    }
+    return 0;
 }
 
 const struct bt_gatt_attr *my_db_write_entry(uint16_t handle, const void *buffer, uint16_t len, bool wake)
@@ -185,7 +212,7 @@ int my_db_wait_for_entry(uint16_t handle)
     return -1;
 }
 
-const struct bt_gatt_attr * my_db_get_attr(uint16_t handle){
+struct my_db_entry * my_db_get_entry(uint16_t handle){
 
     struct my_db_node *cn;
     SYS_SLIST_FOR_EACH_CONTAINER(&my_db, cn, node)
@@ -193,55 +220,34 @@ const struct bt_gatt_attr * my_db_get_attr(uint16_t handle){
 
         if (cn->data.handle == handle)
         {
-            return cn->data.attr;
+            return &cn->data;
         }
     }
     return NULL;
 }
 
-int my_add_ccc_entry(uint16_t ccc_handle, uint16_t char_handle, uint16_t value_handle){
-    struct my_ccc_node *node = k_malloc(sizeof(struct my_ccc_node));
-    memset(node, 0, sizeof(struct my_ccc_node));
-    node->data.ccc_handle = ccc_handle;
-    node->data.char_handle = char_handle;
-    node->data.value_handle = value_handle;
+int my_db_set_data_ptr(struct my_db_entry *entry1, struct my_db_entry *entry2){
 
-    sys_slist_append(&my_ccc_list, node);
-    return 0;
+    entry1->data=entry2;
 }
 
-uint16_t my_get_char_handle(uint16_t ccc_handle){
-
-    struct my_ccc_node *cn;
-    SYS_SLIST_FOR_EACH_CONTAINER(&my_ccc_list, cn, node)
-    {
-
-        if (cn->data.ccc_handle == ccc_handle || cn->data.value_handle == ccc_handle)
-        {
-            return cn->data.char_handle;
-        }
-    }
-    return 0;
-}
-
-uint16_t my_get_value_handle(uint16_t ccc_handle)
+struct my_db_entry *my_db_ccc_to_value_handle(uint16_t ccc_handle)
 {
-
-    struct my_ccc_node *cn;
-    SYS_SLIST_FOR_EACH_CONTAINER(&my_ccc_list, cn, node)
+    struct my_db_node *cn;
+    SYS_SLIST_FOR_EACH_CONTAINER(&my_db, cn, node)
     {
 
-        if (cn->data.ccc_handle == ccc_handle || cn->data.char_handle == ccc_handle)
+        if (cn->data.handle == ccc_handle)
         {
-            return cn->data.value_handle;
+            if(cn->data.type !=ENTRY_CCC){
+                LOG_ERR("entry at handle %u is not a ccc",ccc_handle);
+                return NULL;
+            }
+
+            struct my_db_entry *value_ptr = cn->data.data;
+            return value_ptr->data;
         }
     }
-    return 0;
-}
-
-int my_remove_ccc_entry(uint16_t ccc_handle){
-
-    return 0;
 }
 
 static void my_clean_sub_param(struct bt_gatt_subscribe_params *params){
@@ -258,7 +264,7 @@ static void my_clean_sub_param(struct bt_gatt_subscribe_params *params){
     LOG_INF("MITM module ready");
     return;
 }
-
+/*
 int my_subscribe_to_all(struct bt_conn *conn, bt_gatt_subscribe_func_t func){
 
     if(!conn){
@@ -267,11 +273,10 @@ int my_subscribe_to_all(struct bt_conn *conn, bt_gatt_subscribe_func_t func){
     }
 
     struct my_ccc_node *cn;
-    SYS_SLIST_FOR_EACH_CONTAINER(&my_ccc_list, cn, node)
-    {
+    
         LOG_DBG("found ccc thing with ccc_handle: %u, char_handle: %u value_handle %u",cn->data.ccc_handle, cn->data.char_handle, cn->data.value_handle);
-        struct bt_gatt_subscribe_params *sub_param = &cn->params;
-        sub_param->ccc_handle = cn->data.ccc_handle;
+        struct bt_gatt_subscribe_params params;
+        sub_param->ccc_handle = ccc_handle;
         sub_param->value_handle = cn->data.value_handle;
         sub_param->value = BT_GATT_CCC_NOTIFY;
         sub_param->notify = func;
@@ -282,9 +287,9 @@ int my_subscribe_to_all(struct bt_conn *conn, bt_gatt_subscribe_func_t func){
         if(err){
             LOG_DBG("ERROR IN THE SUBLOOP!");
         }
-    }
+    
 
     
 
     return 0;
-}
+}*/
