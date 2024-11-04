@@ -155,7 +155,12 @@ int my_activate_mitm()
     struct bt_le_adv_param my_params = BT_LE_ADV_PARAM_INIT(
         (BT_LE_ADV_OPT_CONNECTABLE | BT_LE_ADV_OPT_USE_IDENTITY | BT_LE_ADV_OPT_EXT_ADV | (target_mitm_info.coded_phy ? BT_LE_ADV_OPT_CODED:0)),
         BT_GAP_ADV_FAST_INT_MIN_2, BT_GAP_ADV_FAST_INT_MAX_2, NULL);
-    my_params.id = target_mitm_info.address_id;
+    
+    int id = bt_id_create(get_my_target(),NULL);
+    if(id<0){
+      LOG_ERR("ERROR CREATING ID");
+    }
+    my_params.id = id;
 
     err = bt_le_ext_adv_create(&my_params, NULL,&my_adv_set);
     if(err){
@@ -175,7 +180,12 @@ int my_activate_mitm()
         (BT_LE_ADV_OPT_CONNECTABLE | BT_LE_ADV_OPT_USE_IDENTITY),
         BT_GAP_ADV_FAST_INT_MIN_2, BT_GAP_ADV_FAST_INT_MAX_2, NULL);
         
-      my_params.id = target_mitm_info.address_id;
+      //my_params.id = target_mitm_info.address_id;
+      int id = bt_id_create(get_my_target(),NULL);
+      if(id<0){
+        LOG_ERR("ERROR CREATING ID");
+      }
+      my_params.id = id;
     
     err = bt_le_adv_start(&my_params, my_ad, target_mitm_info.nr_ad_fields, my_sd, target_mitm_info.nr_sd_fields);
   }
