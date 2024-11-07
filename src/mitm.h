@@ -40,6 +40,7 @@ struct my_mitm_info {
     unsigned int sd_amount;
     unsigned int address_id;
     bool is_coded;
+    uint16_t appearance;
 };
 
     struct my_callback_struct

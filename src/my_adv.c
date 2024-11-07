@@ -2,6 +2,7 @@
 #include <zephyr/types.h>
 #include <zephyr/logging/log.h>
 #include <zephyr/bluetooth/conn.h>
+#include <zephyr/bluetooth/bluetooth.h>
 #include<zephyr/bluetooth/gatt.h>
 #include "myutil.h"
 #include <zephyr/bluetooth/uuid.h>

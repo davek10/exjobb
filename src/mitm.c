@@ -98,9 +98,13 @@ int my_activate_mitm()
      return set_my_target("F7:E1:36:7C:5B:AB", "random");
    }
 
-   bt_addr_le_from_str(target, type, &target_mitm_info.addr);
-   strncpy(&target_mitm_info.addr_str, target, BT_ADDR_LE_STR_LEN);
+   int err = bt_addr_le_from_str(target, type, &target_mitm_info.addr);
+   if(err){
+    LOG_ERR("Failed to set target: %s, %s err: %d", target, type,err);
+    return err;
+   }
 
+   strncpy(&target_mitm_info.addr_str, target, BT_ADDR_LE_STR_LEN);
    LOG_INF("New target set: %s, %s", target, type);
    return 0;
  }
@@ -150,10 +154,9 @@ int my_activate_mitm()
 
 #ifdef MY_ACTIVATE_MITM
 
-  if(target_mitm_info.ext_adv || target_mitm_info.coded_phy){
 
     struct bt_le_adv_param my_params = BT_LE_ADV_PARAM_INIT(
-        (BT_LE_ADV_OPT_CONNECTABLE | BT_LE_ADV_OPT_USE_IDENTITY | BT_LE_ADV_OPT_EXT_ADV | (target_mitm_info.coded_phy ? BT_LE_ADV_OPT_CODED:0)),
+        (BT_LE_ADV_OPT_CONNECTABLE | BT_LE_ADV_OPT_USE_IDENTITY | (target_mitm_info.ext_adv?BT_LE_ADV_OPT_EXT_ADV:0) | (target_mitm_info.coded_phy ? BT_LE_ADV_OPT_CODED:0)),
         BT_GAP_ADV_FAST_INT_MIN_2, BT_GAP_ADV_FAST_INT_MAX_2, NULL);
     
     int id = bt_id_create(get_my_target(),NULL);
@@ -161,7 +164,12 @@ int my_activate_mitm()
       LOG_ERR("ERROR CREATING ID");
     }
     my_params.id = id;
+    err = bt_set_name(target_mitm_info.name);
+    err = bt_set_appearance(target_mitm_info.appearance);
 
+    
+
+  if(target_mitm_info.ext_adv || target_mitm_info.coded_phy){
     err = bt_le_ext_adv_create(&my_params, NULL,&my_adv_set);
     if(err){
       LOG_ERR("could not create extended adv set, err: %d", err);
@@ -174,18 +182,8 @@ int my_activate_mitm()
       return err;
     }
    err =  bt_le_ext_adv_start(my_adv_set,NULL);
-  }else{
 
-    struct bt_le_adv_param my_params = BT_LE_ADV_PARAM_INIT(
-        (BT_LE_ADV_OPT_CONNECTABLE | BT_LE_ADV_OPT_USE_IDENTITY),
-        BT_GAP_ADV_FAST_INT_MIN_2, BT_GAP_ADV_FAST_INT_MAX_2, NULL);
-        
-      //my_params.id = target_mitm_info.address_id;
-      int id = bt_id_create(get_my_target(),NULL);
-      if(id<0){
-        LOG_ERR("ERROR CREATING ID");
-      }
-      my_params.id = id;
+  }else{
     
     err = bt_le_adv_start(&my_params, my_ad, target_mitm_info.nr_ad_fields, my_sd, target_mitm_info.nr_sd_fields);
   }

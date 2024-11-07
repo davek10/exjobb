@@ -190,8 +190,13 @@ static bool my_data_cb(struct bt_data *data, void *user_data){
 		_data_ptr = &(mitm_info->man_data);
 		break;
 
+	case BT_DATA_GAP_APPEARANCE:
+		memcpy(&mitm_info->appearance, data->data, data->data_len);
+		_data_ptr = &(mitm_info->appearance);
+		break;
+
 	case BT_DATA_UUID16_ALL:
-	#ifdef MY_BT_DATA_SOL
+#ifdef MY_BT_DATA_SOL
 		_data_ptr = data;
 		is_bt_data = true;
 	#else
@@ -228,7 +233,7 @@ static bool my_data_cb(struct bt_data *data, void *user_data){
 	#endif
 		break;
 	default:
-		LOG_DBG("unhandeled type: %u \n", data->type);
+		LOG_DBG("unhandeled type: %u, len: %u\n", data->type, len);
 		//_data_ptr = data->data;
 		break;
 	}
