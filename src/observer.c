@@ -17,7 +17,12 @@
 #include <zephyr/sys/slist.h>
 #include "myutil.h"
 #include <zephyr/kernel.h>
-
+#include <zephyr/sys/printk.h>
+#include <zephyr/bluetooth/bluetooth.h>
+#include <zephyr/bluetooth/hci.h>
+#include <string.h>
+#include <zephyr/bluetooth/addr.h>
+#include "mitm.h"
 
 #define MY_BT_DATA_SOL
 
@@ -191,6 +196,7 @@ static bool my_data_cb(struct bt_data *data, void *user_data){
 		break;
 
 	case BT_DATA_GAP_APPEARANCE:
+		LOG_DBG("FOUND APPEARANCE!!!! data: %u, len: %u", *((uint16_t *)(data->data)), data->data_len);
 		memcpy(&mitm_info->appearance, data->data, data->data_len);
 		_data_ptr = &(mitm_info->appearance);
 		break;
@@ -234,7 +240,7 @@ static bool my_data_cb(struct bt_data *data, void *user_data){
 		break;
 	default:
 		LOG_DBG("unhandeled type: %u, len: %u\n", data->type, len);
-		//_data_ptr = data->data;
+		_data_ptr = data->data;
 		break;
 	}
 	if(_data_ptr != NULL){
@@ -289,6 +295,7 @@ static void my_scan_rcv_cb(const struct bt_le_scan_recv_info *info,
 		target_mitm_info.phy2 = info->secondary_phy;
 		target_mitm_info.coded_phy = (info->primary_phy == BT_GAP_LE_PHY_CODED &&
 									  (info->secondary_phy == BT_GAP_LE_PHY_CODED || info->secondary_phy == BT_GAP_LE_PHY_NONE));
+
 		LOG_DBG("primary phy : %u, sec phy: %u, is_coded: %u", info->primary_phy, info->secondary_phy, my_mitm_get_is_coded());
 
 		// my_print_mitm_info(&target_mitm_info);

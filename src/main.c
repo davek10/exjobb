@@ -15,7 +15,7 @@
 #include <zephyr/bluetooth/hci.h>
 #include <zephyr/logging/log.h>
 #include <zephyr/kernel.h>
-#include <zephyr/bluetooth/controller.h>
+//#include <zephyr/bluetooth/controller.h>
 #include "my_adv.h"
 #include "db.h"
 #include "mitm.h"
@@ -24,6 +24,7 @@
 #include "errno.h"
 #include "myutil.h"
 #include <zephyr/bluetooth/addr.h>
+#include <zephyr/sys/atomic.h>
 
 //#define MY_PUBLIC_FIX
 
@@ -31,6 +32,10 @@ LOG_MODULE_REGISTER(log1, APP_LOG_LEVEL);
 
 struct k_sem my_bt_enable_sem;
 K_SEM_DEFINE(my_bt_enable_sem,0,1);
+
+struct k_sem my_auth_sem;
+K_SEM_DEFINE(my_auth_sem,0,1);
+atomic_val_t my_auth_flag = ATOMIC_INIT(0);
 
 enum command{
 	LIST_HANDLES,
@@ -43,8 +48,8 @@ enum command{
 	TARGET,
 	START,
 	REPLACE,
+	BOND,
 };
-
 
 
 static void auth_passkey_display(struct bt_conn *conn, unsigned int passkey)
@@ -65,13 +70,51 @@ static void auth_cancel(struct bt_conn *conn)
 	LOG_INF("Pairing cancelled: %s\n", addr);
 }
 
+static void auth_passkey_entry(struct bt_conn *conn){
+	LOG_DBG("");
+	LOG_DBG("passkey_entry");
+	unsigned int passkey;
+	#ifndef MY_CPY_USER_PASSKEY
+	atomic_set(&my_auth_flag,1);
+	k_sem_take(&my_auth_sem,K_FOREVER);
+	#endif
+	passkey = my_mitm_get_passkey();
+	LOG_DBG("retrieved passkey: %u",passkey);
+	
+	int err = bt_conn_auth_passkey_entry(conn, passkey);
+	if(err){
+		LOG_ERR("AUTH_PASSKEY_ENTRY ERROR %d",err);
+	}
+}
+
+static void auth_pairing_confirm(struct bt_conn *conn)
+{
+	LOG_DBG("unhandled pairing!");
+	int err = bt_conn_auth_pairing_confirm(conn);
+	if(err){
+		LOG_ERR("COULD NOT CONFIRM PAIRING");
+	}
+}
+
 static struct bt_conn_auth_cb auth_cb_display = {
 	.passkey_display = auth_passkey_display,
-	.passkey_entry = NULL,
+	.passkey_entry = auth_passkey_entry,
 	.cancel = auth_cancel,
+	.pairing_confirm=auth_pairing_confirm,
+	
 };
 
+void my_create_bond(uint32_t dir){
 
+	if(dir == 1)
+	{
+		int err = bt_conn_set_security(my_get_main_conn(),BT_SECURITY_L4);
+		if(err){
+			LOG_ERR("COULD NOT PAIR/BOND WITH DEVICE reason: %d", err);
+		}
+	}
+	return;
+}
 
 void list_devices(){
 	my_obs_print_blocklist();
@@ -172,24 +215,7 @@ void my_disconnect_all_cb(struct bt_conn *conn, void *data)
 		return byte_len;
 	}
 
-	uint32_t my_str_to_uint(char *buf, size_t max_len)
-	{
-		size_t len = strnlen(buf, max_len);
-		uint32_t res = 0;
-		bool first = true;
-		for (uint32_t i = 0; i < len; i++)
-		{
-			char c = buf[i];
 
-			if (c < 48 || c > 57)
-			{
-				return -1;
-			}
-			LOG_DBG("c: %u, len: %u, i: %u, len-i: %u", (c - '0'), len, i, len - i);
-			res += (c - '0') * my_naive_pow(10, len - i - 1);
-		}
-		return res;
-	}
 
 	enum command handle_command(char *buf)
 	{
@@ -235,6 +261,13 @@ void my_disconnect_all_cb(struct bt_conn *conn, void *data)
 			uint32_t dir = my_str_to_uint(iter, UART_MSG_SIZE);
 			my_add_rule((dir != 0), nr, 0, 0,0);
 			return BLOCK;
+		}
+		else if (strncmp(iter, "bond", sizeof("bond")) == 0)
+		{
+			iter = strtok_r(NULL, " ", &tmp);
+			uint32_t nr = my_str_to_uint(iter, UART_MSG_SIZE);
+			my_create_bond(nr);
+			return BOND;
 		}
 		else if (strncmp(iter, "replace", sizeof("replace")) == 0)
 		{
@@ -355,6 +388,8 @@ int my_start(){
 	//LOG_DBG("subscribing to attributes");
 	//err = my_adv_subscribe_to_all();
 
+	my_adv_wait_for_appearance();
+
 	LOG_INF("Starting MITM module ...\n");
 	err = my_mitm_start_ad();
 
@@ -407,6 +442,13 @@ void main(void)
 	{
 		print_uart(tx_buf);
 		print_uart("\r\n");
+		if(atomic_get(&my_auth_flag)){
+			LOG_DBG("in auth mode");
+			my_mitm_set_passkey_c(&tx_buf, UART_MSG_SIZE);
+			atomic_set(&my_auth_flag,0);
+			k_sem_give(&my_auth_sem);
+			continue;
+		}
 		cmd = handle_command(tx_buf);
 		LOG_DBG("cmd = %u", cmd);
 

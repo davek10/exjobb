@@ -88,6 +88,16 @@ int my_activate_mitm()
    return my_mitm_started;
  }
 
+ void my_mitm_set_passkey_c(const char *passkey, size_t len){
+  uint32_t uint_passkey = my_str_to_uint(passkey,len);
+  LOG_DBG("passkey: %u", uint_passkey);
+  target_mitm_info.passkey = uint_passkey;
+ }
+
+ unsigned int my_mitm_get_passkey(){
+  return target_mitm_info.passkey;
+ }
+
  void set_my_mitm_address_id(unsigned int id){
   target_mitm_info.address_id = id;
  }
@@ -112,6 +122,10 @@ int my_activate_mitm()
  const bt_addr_le_t* get_my_target()
  {
   return &target_mitm_info.addr;
+ }
+
+ void my_mitm_set_appearance(uint16_t appearance){
+  target_mitm_info.appearance = appearance;
  }
 
  bool my_mitm_get_is_coded(){
@@ -165,11 +179,18 @@ int my_activate_mitm()
     }
     my_params.id = id;
     err = bt_set_name(target_mitm_info.name);
+    if(err){
+      LOG_ERR("CANNOT SET NAME, err = %d",err);
+    }
+    LOG_DBG("appearance: %u", target_mitm_info.appearance);
     err = bt_set_appearance(target_mitm_info.appearance);
-
+    if(err){
+      LOG_ERR("CANNOT SET APPEARANCE, err = %d",err);
+    }
     
 
   if(target_mitm_info.ext_adv || target_mitm_info.coded_phy){
+    LOG_DBG("ALTERNATIVE 1");
     err = bt_le_ext_adv_create(&my_params, NULL,&my_adv_set);
     if(err){
       LOG_ERR("could not create extended adv set, err: %d", err);
@@ -184,7 +205,7 @@ int my_activate_mitm()
    err =  bt_le_ext_adv_start(my_adv_set,NULL);
 
   }else{
-    
+    LOG_DBG("ALTERNATIVE 2");
     err = bt_le_adv_start(&my_params, my_ad, target_mitm_info.nr_ad_fields, my_sd, target_mitm_info.nr_sd_fields);
   }
 

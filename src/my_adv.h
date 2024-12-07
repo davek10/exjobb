@@ -38,5 +38,6 @@ void my_set_main_conn(struct bt_conn *new_conn);
 struct bt_conn *my_get_main_conn();
 int my_adv_subscribe_to_all();
 void print_ccc_cfg_data(struct _bt_gatt_ccc *data);
+int my_adv_wait_for_appearance();
 
 #endif

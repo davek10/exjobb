@@ -1,14 +1,15 @@
-#include "my_adv.h"
 #include <zephyr/types.h>
 #include <zephyr/logging/log.h>
 #include <zephyr/bluetooth/conn.h>
 #include <zephyr/bluetooth/bluetooth.h>
-#include<zephyr/bluetooth/gatt.h>
-#include "myutil.h"
+#include <zephyr/bluetooth/gatt.h>
 #include <zephyr/bluetooth/uuid.h>
 #include <zephyr/logging/log_ctrl.h>
 #include <stdlib.h>
+#include "myutil.h"
+#include "my_adv.h"
 #include "db.h"
+#include "mitm.h"
 
 #define ALLOW_DISCOVERY
 //#define MYBLOCKREAD
@@ -37,6 +38,9 @@ K_SEM_DEFINE(adv_sem, 0, 1);
 
 struct k_mutex my_attr_mutex;
 K_MUTEX_DEFINE(my_attr_mutex);
+
+struct k_sem my_adv_appearance_sema;
+K_SEM_DEFINE(my_adv_appearance_sema,1,1);
 
 sys_slist_t my_attr_list = {NULL, NULL};
 
@@ -84,6 +88,12 @@ int my_service_ctr = 0;
     return val;
 }
 
+int my_adv_wait_for_appearance(){
+    int res =  k_sem_take(&my_adv_appearance_sema, K_FOREVER);
+
+    return res;
+}
+
 void my_set_main_conn(struct bt_conn *new_conn){
     main_conn = new_conn;
 }
@@ -127,48 +137,30 @@ static uint8_t my_ccc_callback(struct bt_conn * conn,
                                    struct bt_gatt_subscribe_params * params,
                                    const void *data, uint16_t len)
 {
-    LOG_DBG("received notification");
+    LOG_INF("ccc update callback received: attribute with handle: %u", params->value_handle);
     if (!data)
     {
         LOG_ERR("ccc data error handle %u", params->ccc_handle);
         return BT_GATT_ITER_STOP;
     }
+    LOG_HEXDUMP_INF(data,len,"data received: ");
     
     struct my_db_entry *value_ptr = my_db_ccc_to_value_handle(params->ccc_handle);
-    const struct bt_gatt_attr *tmp_attr = my_db_write_entry(value_ptr->handle, data, len, false);
+    my_db_write_entry(value_ptr->handle, data, len, false);
     
-    //bt_gatt_foreach_attr(1,0xffff,tmp_func,NULL);
+    struct my_rule_res res = my_check_rules(1,value_ptr->handle, data, len);
+    
 
-    #ifdef CHECK_RULES
-    void *new_ptr;
-    int new_len;
-    bool block = false;
-    struct my_rule_res res = my_check_rules(1,tmp_attr->handle);
     if(res.type == RULE_BLOCK){
-        block = true;
-    }else if(res.type == RULE_REPLACE){
-        new_ptr = res.data;
-        new_len = res.len;
-    }
-    else{
-        new_ptr = data;
-        new_len = len;
-    }
-    #endif
-    LOG_INF("ccc update callback received: attribute with handle: %u", params->value_handle);
-    LOG_HEXDUMP_INF(data,len,"data received: ");
-    if(res.type == RULE_REPLACE){
-    LOG_HEXDUMP_INF(new_ptr, new_len, "replacing real data with: ");
-    }
-    if(!block){
-        int err = bt_gatt_notify(NULL, tmp_attr, new_ptr, new_len);
+        LOG_INF("user not notified reason: communication blocked in direction : %i", 1);
+    
+    }else{
+        int err = bt_gatt_notify(NULL, value_ptr->attr, res.data, res.len);
         if(err){
             LOG_ERR("gatt notify error: %i", err);
         }else{
             LOG_INF("user notified");
         }
-    }else{
-        LOG_INF("user not notified reason: communication blocked in direction : %i", 1);
     }
 
     return BT_GATT_ITER_CONTINUE;
@@ -206,34 +198,36 @@ static void my_ccc_changed(const struct bt_gatt_attr *attr, uint16_t value)
         }
 
     }
-    return;
+return;
 }
 
-    uint8_t my_read_callback(struct bt_conn * conn, uint8_t err,
-                             struct bt_gatt_read_params * params,
-                             const void *data, uint16_t length)
-    {
-        LOG_DBG("writing new value to db, length = %u", length);
-        LOG_HEXDUMP_DBG(data, length, "read response callback: attribute with bytes:");
+uint8_t my_read_callback(struct bt_conn * conn, uint8_t err,
+                            struct bt_gatt_read_params * params,
+                            const void *data, uint16_t length)
+{
+    LOG_DBG("writing new value to db, length = %u", length);
+    LOG_HEXDUMP_DBG(data, length, "read response callback: attribute with bytes:");
 
-        my_db_write_entry(params->single.handle, data, length, false);
+    my_db_write_entry(params->single.handle, data, length, false);
 
-        k_free(params);
-        return BT_GATT_ITER_STOP;
-    }
+    k_free(params);
+    return BT_GATT_ITER_STOP;
+}
 
-    static size_t my_read_response_callback(struct bt_conn * conn,
+
+
+static ssize_t my_read_response_callback(struct bt_conn *conn,
                                             const struct bt_gatt_attr *attr,
                                             void *buf, uint16_t len,
                                             uint16_t offset)
-    {
-        LOG_INF("user trying to read: attribute with handle: %u len: %u\n", attr->handle, len);
+{
+    LOG_INF("user trying to read: attribute with handle: %u len: %u\n", attr->handle, len);
 
-        struct bt_conn_info info, main_info;
-        bt_conn_get_info(conn, &info);
-        bt_conn_get_info(main_conn, &main_info);
-        LOG_DBG("conn_id = %u", info.id);
-        LOG_DBG("main conn = %u, status = %u", main_info.id, main_info.state);
+    struct bt_conn_info info, main_info;
+    bt_conn_get_info(conn, &info);
+    bt_conn_get_info(main_conn, &main_info);
+    LOG_DBG("conn_id = %u", info.id);
+    LOG_DBG("main conn = %u, status = %u", main_info.id, main_info.state);
 
 
 #ifdef MY_CALLBACK_ATTEMPT
@@ -262,7 +256,7 @@ static void my_ccc_changed(const struct bt_gatt_attr *attr, uint16_t value)
     void *new_ptr;
     int new_len;
     bool block = false;
-    struct my_rule_res res = my_check_rules(1, _handle);
+    struct my_rule_res res = my_check_rules(1, _handle, buf, len);
     if (res.type == RULE_BLOCK)
     {
         LOG_INF("user blocked from reading from handle :%u", attr->handle);
@@ -271,8 +265,8 @@ static void my_ccc_changed(const struct bt_gatt_attr *attr, uint16_t value)
     }
     else if (res.type == RULE_REPLACE)
     {
-        new_len = MIN(res.len,length);
-        memcpy(buf, res.data,new_len);
+        new_len = MIN(res.len, length);
+        memcpy(buf, res.data, new_len);
         LOG_HEXDUMP_INF(buf, new_len, "replacing real data with: ");
         return new_len;
     }
@@ -283,6 +277,29 @@ static void my_ccc_changed(const struct bt_gatt_attr *attr, uint16_t value)
     }
 
 #endif
+}
+
+static ssize_t my_char_read_response_callback(struct bt_conn *conn,
+                                              const struct bt_gatt_attr *attr,
+                                              void *buf, uint16_t len,
+                                              uint16_t offset)
+{
+    ssize_t res = bt_gatt_attr_read_chrc(conn, attr, buf, len, offset);
+    char uuid_str[BT_UUID_STR_LEN];
+    bt_uuid_to_str(attr->uuid, uuid_str, BT_UUID_STR_LEN);
+
+    LOG_DBG("trying to read char handle: %u, uuid: %s", attr->handle, uuid_str);
+
+    uint16_t handle = my_db_translate_handle(attr->handle, 1);
+    struct my_db_entry *char_entry = my_db_get_entry(handle);
+    struct my_db_entry *value_entry = char_entry->data;
+
+    /*
+    size_t _len =  my_db_get_entry_data(value_entry,buf,len);
+    LOG_HEXDUMP_INF(buf,_len,"data: ");
+    */
+    ssize_t _len = my_read_response_callback(conn, value_entry->attr, buf, len, offset);
+    return _len;
 }
 
 static void my_write_response_callback(struct bt_conn *conn, uint8_t err, struct bt_gatt_write_params *params)
@@ -309,32 +326,17 @@ static size_t my_write_callback(struct bt_conn *conn,
 
         void *new_ptr;
         int new_len;
-        bool block = false;
-        struct my_rule_res res = my_check_rules(0, attr->handle);
+        struct my_rule_res res = my_check_rules(0, attr->handle, buf, len);
         if (res.type == RULE_BLOCK)
         {
-            block = true;
-        }
-        else if (res.type == RULE_REPLACE)
-        {
-            new_ptr = res.data;
-            new_len = res.len;
-            LOG_HEXDUMP_INF(buf, new_len, "replacing real data with: ");
-        }
-        else
-        {
-            new_ptr = buf;
-            new_len = len;
-        }
-        if(block){
             LOG_INF("user blocked from writing to target on handle :%u",attr->handle);
             return 0;
         }
-
+        
         struct bt_gatt_write_params _write_params = {
             .handle = handle,
-            .data = new_ptr,
-            .length = new_len,
+            .data = res.data,
+            .length = res.len,
             .offset = offset,
             .func = my_write_response_callback,
         };
@@ -347,6 +349,7 @@ static size_t my_write_callback(struct bt_conn *conn,
 
 static void my_free_user_data(void *user_data){
 
+    LOG_ERR("SHOULD NOT RUN FREE USER DATA");
     k_free(user_data);
 }
 
@@ -426,6 +429,19 @@ static int my_attr_node_cmp(const void *c1, const void *c2){
     {
         return -1;
     }
+}
+
+static uint8_t my_adv_appearance_cb(struct bt_conn *conn, uint8_t err, struct bt_gatt_read_params *params, const void *data, uint16_t length){
+    
+    uint16_t appearance = *(uint16_t*)data;
+
+    LOG_DBG("appearance_CB, appearance = %u, len = %u",appearance, length);
+
+    my_mitm_set_appearance(appearance);
+    //k_free(params);
+    k_sem_give(&my_adv_appearance_sema);
+    return BT_GATT_ITER_STOP;
+
 }
 
 static void my_init_service_helper(struct my_service_helper *sh){
@@ -546,6 +562,19 @@ static int flush_attr_list(){
 
         }else{
 
+            if(bt_uuid_cmp(tmp_attr->uuid, BT_UUID_GAP_APPEARANCE) == 0){
+                LOG_DBG("found appearance!, handle: %u", tmp_attr->handle);
+                k_sem_take(&my_adv_appearance_sema, K_NO_WAIT);
+                struct bt_gatt_read_params *_read_params = k_malloc(sizeof(struct bt_gatt_read_params));
+                memset(_read_params, 0, sizeof(struct bt_gatt_read_params));
+                _read_params->single.handle = tmp_attr->handle;
+                _read_params->single.offset = 0;
+                _read_params->handle_count = 1;
+                _read_params->func = my_adv_appearance_cb;
+
+                bt_gatt_read(main_conn, _read_params);
+            }
+
             sh.last_value = my_db_add_entry(tmp_attr->handle, ENTRY_DATA, tmp_attr);
             tmp_attr->handle = 0;
             sh.last_value_indx = j;
@@ -560,6 +589,7 @@ static int flush_attr_list(){
 
 static int reset_attr_list()
 {
+
     if(!sys_slist_is_empty(&my_attr_list)){
             my_empty_list();
     }
@@ -683,6 +713,7 @@ static int my_add_service(struct bt_conn *conn, const struct bt_gatt_attr *attr,
 
     }else if (params->type == BT_GATT_DISCOVER_CHARACTERISTIC)
     {
+        // node->attr.read = my_char_read_response_callback;
         node->attr.read = bt_gatt_attr_read_chrc;
         node->attr.write = NULL;
         node->attr.perm = BT_GATT_PERM_READ;
@@ -812,7 +843,9 @@ int my_start_discovery()
     }
 
     flush_attr_list();
-    LOG_DBG("reset list");
+
+    my_db_translate_chrc_user_data();
+
     //reset_attr_list();
 
     k_sem_give(&adv_sem);
@@ -832,8 +865,17 @@ static void connected(struct bt_conn * conn, uint8_t err)
 
     char addr[BT_ADDR_LE_STR_LEN];
     bt_addr_le_to_str(bt_conn_get_dst(conn), addr, sizeof(addr));
+    
+    char my_addr[BT_ADDR_LE_STR_LEN];
+    bt_addr_le_to_str(my_info.le.src, my_addr, sizeof(my_addr));
+    char my_local_addr[BT_ADDR_LE_STR_LEN];
+    bt_addr_le_to_str(my_info.le.local, my_local_addr, sizeof(my_local_addr));
+    char my_remote_addr[BT_ADDR_LE_STR_LEN];
+    bt_addr_le_to_str(my_info.le.remote, my_remote_addr, sizeof(my_remote_addr));
 
-    LOG_INF("Connected to: %s, id: %u, role: %s \n", addr, my_info.id, (my_info.role == BT_CONN_ROLE_CENTRAL ? "central" : "periphiral"));
+    LOG_INF("Connected to: %s, id: %u, role: %s using id addres: %s, \n local address: %s, remote address: %s", 
+                                        addr, my_info.id, (my_info.role == BT_CONN_ROLE_CENTRAL ? "central" : "periphiral"), 
+                                        my_addr, my_local_addr,my_remote_addr);
 
     if (my_info.role == BT_CONN_ROLE_CENTRAL)
     {

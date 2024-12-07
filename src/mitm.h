@@ -41,6 +41,7 @@ struct my_mitm_info {
     unsigned int address_id;
     bool is_coded;
     uint16_t appearance;
+    unsigned int passkey;
 };
 
     struct my_callback_struct
@@ -63,6 +64,7 @@ int my_activate_mitm();
 const bt_addr_le_t* get_my_target();
 int set_my_target(const char *target, const char* type);
 void set_my_target_set(bool value);
+void my_mitm_set_appearance(uint16_t appearance);
 void my_print_mitm_info(const struct my_mitm_info *mitm_info);
 int my_mitm_add_ad(uint8_t type,void *data, uint8_t data_len, bool is_sd, bool is_bt_data);
 int my_mitm_start_ad();
@@ -72,5 +74,7 @@ int my_fill_array(sys_slist_t *my_slist, struct bt_data *data);
 unsigned long my_set_bit(unsigned long map, uint8_t bit);
 bool my_check_bit(unsigned long map, uint8_t bit);
 bool my_mitm_get_is_coded();
+void my_mitm_set_passkey_c(const char *passkey, size_t len);
+unsigned int my_mitm_get_passkey();
 
 #endif

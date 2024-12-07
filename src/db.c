@@ -41,9 +41,9 @@ int my_add_rule(bool dir, uint16_t handle, bool set_new_val, uint8_t *new_val, s
     return 0;
 }
 
-struct my_rule_res my_check_rules(uint8_t dir, uint16_t handle)
+struct my_rule_res my_check_rules(uint8_t dir, uint16_t handle, const void *data, uint16_t len)
 {
-    struct my_rule_res res = {0,RULE_PASS,0};
+    struct my_rule_res res = {RULE_PASS,data,len};
     if (!num_rules)
     {
         return res;
@@ -58,6 +58,7 @@ struct my_rule_res my_check_rules(uint8_t dir, uint16_t handle)
                 res.type = RULE_REPLACE;
                 res.data = tmp->new_val;
                 res.len = tmp->len;
+                 LOG_HEXDUMP_INF(res.data, res.len, "replacing real data with: ");
             }else{
                 res.type = RULE_BLOCK;
             }
@@ -155,7 +156,7 @@ uint16_t my_db_translate_handle(uint16_t handle, uint8_t dir){
     return 0;
 }
 
-const struct bt_gatt_attr *my_db_write_entry(uint16_t handle, const void *buffer, uint16_t len, bool wake)
+void my_db_write_entry(uint16_t handle, const void *buffer, uint16_t len, bool wake)
 {
     if (!buffer)
     {
@@ -226,6 +227,13 @@ struct my_db_entry * my_db_get_entry(uint16_t handle){
     return NULL;
 }
 
+size_t my_db_get_entry_data(struct my_db_entry *entry, void *buf, uint16_t len){
+
+    uint16_t _len = MIN(len,entry->len);
+    memcpy(buf, entry->data,_len);
+    return _len;
+}
+
 int my_db_set_data_ptr(struct my_db_entry *entry1, struct my_db_entry *entry2){
 
     entry1->data=entry2;
@@ -264,32 +272,47 @@ static void my_clean_sub_param(struct bt_gatt_subscribe_params *params){
     LOG_INF("MITM module ready");
     return;
 }
-/*
-int my_subscribe_to_all(struct bt_conn *conn, bt_gatt_subscribe_func_t func){
 
-    if(!conn){
-        LOG_ERR("NO CONNN!");
-        return -1;
-    }
-
-    struct my_ccc_node *cn;
-    
-        LOG_DBG("found ccc thing with ccc_handle: %u, char_handle: %u value_handle %u",cn->data.ccc_handle, cn->data.char_handle, cn->data.value_handle);
-        struct bt_gatt_subscribe_params params;
-        sub_param->ccc_handle = ccc_handle;
-        sub_param->value_handle = cn->data.value_handle;
-        sub_param->value = BT_GATT_CCC_NOTIFY;
-        sub_param->notify = func;
-        sub_param->subscribe = my_sub_callback;
-
-        int err = bt_gatt_subscribe(conn, sub_param);
-        
-        if(err){
-            LOG_DBG("ERROR IN THE SUBLOOP!");
+void my_db_translate_chrc_user_data(){
+    struct my_db_node *cn;
+    SYS_SLIST_FOR_EACH_CONTAINER(&my_db, cn, node)
+    {
+        if(cn->data.type == ENTRY_CHARACTERISTIC){
+            struct bt_gatt_chrc *tmp = cn->data.attr->user_data;
+            
+            struct my_db_entry *entry = my_db_get_entry(tmp->value_handle);
+            uint16_t tmp_uint = entry->attr->handle;
+            tmp->value_handle = tmp_uint;
         }
-    
+    }
+}
 
-    
+    /*
+    int my_subscribe_to_all(struct bt_conn *conn, bt_gatt_subscribe_func_t func){
 
-    return 0;
-}*/
+        if(!conn){
+            LOG_ERR("NO CONNN!");
+            return -1;
+        }
+
+        struct my_ccc_node *cn;
+
+            LOG_DBG("found ccc thing with ccc_handle: %u, char_handle: %u value_handle %u",cn->data.ccc_handle, cn->data.char_handle, cn->data.value_handle);
+            struct bt_gatt_subscribe_params params;
+            sub_param->ccc_handle = ccc_handle;
+            sub_param->value_handle = cn->data.value_handle;
+            sub_param->value = BT_GATT_CCC_NOTIFY;
+            sub_param->notify = func;
+            sub_param->subscribe = my_sub_callback;
+
+            int err = bt_gatt_subscribe(conn, sub_param);
+
+            if(err){
+                LOG_DBG("ERROR IN THE SUBLOOP!");
+            }
+
+
+
+
+        return 0;
+    }*/
