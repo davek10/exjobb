@@ -30,6 +30,7 @@ int my_init_mitm(){
 
   target_mitm_info.ad_amount = 0;
   target_mitm_info.sd_amount = 0;
+  target_mitm_info.passkey = 0;
 
   return 0;
 }

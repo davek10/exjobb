@@ -47,6 +47,8 @@ sys_slist_t my_attr_list = {NULL, NULL};
 atomic_t my_subscribed = ATOMIC_INIT(0);
 
 struct bt_conn *main_conn = NULL;
+struct bt_conn *connections[CONFIG_BT_MAX_CONN];
+uint32_t connection_ctr = 1;
 
 struct bt_gatt_discover_params *chrc_params, *ccc_params;
 
@@ -56,8 +58,7 @@ struct bt_gatt_service* my_service_array [MY_SERVICE_CNT];
 int my_service_ctr = 0;
  
 
-    static uint8_t
-    tmp_func(const struct bt_gatt_attr *attr, uint16_t handle, void *user_data)
+static uint8_t tmp_func(const struct bt_gatt_attr *attr, uint16_t handle, void *user_data)
 {
 
     if(!attr){
@@ -137,6 +138,7 @@ static uint8_t my_ccc_callback(struct bt_conn * conn,
                                    struct bt_gatt_subscribe_params * params,
                                    const void *data, uint16_t len)
 {
+    LOG_INF("");
     LOG_INF("ccc update callback received: attribute with handle: %u", params->value_handle);
     if (!data)
     {
@@ -175,7 +177,7 @@ static uint8_t my_ccc_callback(struct bt_conn * conn,
 
 static void my_ccc_changed(const struct bt_gatt_attr *attr, uint16_t value)
 {
-    LOG_INF("ccc callback: user wants to subscribe to attribute with handle: %u, value: %u \n", attr->handle, value);
+    LOG_INF("ccc update: user wants to subscribe to attribute with handle: %u, value: %u \n", attr->handle, value);
     
     atomic_set(&my_subscribed, value);
     
@@ -192,6 +194,7 @@ static void my_ccc_changed(const struct bt_gatt_attr *attr, uint16_t value)
         sub_params->value = BT_GATT_CCC_NOTIFY;
         sub_params->value_handle = value_entry->handle;
 
+        LOG_INF("sending subscribe to target: %u",value_entry->handle);
         int err = bt_gatt_subscribe(main_conn, sub_params);
         if(err){
             LOG_ERR("cannot subscribe to handle %u, err: %d",ccc_handle,err);
@@ -205,8 +208,9 @@ uint8_t my_read_callback(struct bt_conn * conn, uint8_t err,
                             struct bt_gatt_read_params * params,
                             const void *data, uint16_t length)
 {
-    LOG_DBG("writing new value to db, length = %u", length);
-    LOG_HEXDUMP_DBG(data, length, "read response callback: attribute with bytes:");
+    LOG_INF("");
+    LOG_INF("received read response, length = %u", length);
+    LOG_HEXDUMP_INF(data, length, "received data: ");
 
     my_db_write_entry(params->single.handle, data, length, false);
 
@@ -221,6 +225,7 @@ static ssize_t my_read_response_callback(struct bt_conn *conn,
                                             void *buf, uint16_t len,
                                             uint16_t offset)
 {
+    LOG_INF("");
     LOG_INF("user trying to read: attribute with handle: %u len: %u\n", attr->handle, len);
 
     struct bt_conn_info info, main_info;
@@ -248,11 +253,13 @@ static ssize_t my_read_response_callback(struct bt_conn *conn,
     _read_params->handle_count = 1;
     _read_params->single.handle = _handle;
     _read_params->single.offset = 0; 
+    
+    LOG_INF("Sending copy of read request to target");
     int err = bt_gatt_read(main_conn, _read_params);
     
 
     int length = my_db_read_entry(_handle, buf, len, false);
-    LOG_HEXDUMP_INF(buf,length,"data: ");
+    LOG_HEXDUMP_INF(buf,length,"received data: ");
     void *new_ptr;
     int new_len;
     bool block = false;
@@ -267,7 +274,7 @@ static ssize_t my_read_response_callback(struct bt_conn *conn,
     {
         new_len = MIN(res.len, length);
         memcpy(buf, res.data, new_len);
-        LOG_HEXDUMP_INF(buf, new_len, "replacing real data with: ");
+        LOG_HEXDUMP_INF(buf, new_len, "replacing data with: ");
         return new_len;
     }
     else
@@ -316,12 +323,18 @@ static size_t my_write_callback(struct bt_conn *conn,
                                 const void *buf, uint16_t len,
                                 uint16_t offset, uint8_t flags)
 {
-    LOG_INF("user trying to write to attribute with handle: %u \n", attr->handle);
+
+    LOG_INF("");
+    LOG_INF("user trying to write to attribute with handle: %u", attr->handle);
     LOG_HEXDUMP_INF(buf, len, "data:");
     uint16_t handle = my_db_translate_handle(attr->handle,1);
 
     if(MY_CHECK_BIT(flags,1)){
-        //bt_gatt_write_without_response(main_conn, attr->handle, buf, len,false);
+        LOG_DBG("writing to user without response");
+        int err = bt_gatt_write_without_response(main_conn, handle, buf, len,false);
+        if(err){
+            LOG_ERR("Error writing to target code: %d", err);
+        }
     }else{
 
         void *new_ptr;
@@ -340,7 +353,7 @@ static size_t my_write_callback(struct bt_conn *conn,
             .offset = offset,
             .func = my_write_response_callback,
         };
-        LOG_INF("writing to target");
+        //LOG_INF("writing to target: %u", handle);
         int err = bt_gatt_write(main_conn, &_write_params);
     }
 
@@ -455,14 +468,8 @@ static void my_init_service_helper(struct my_service_helper *sh){
     sh->last_value_indx = -1;
 }
 
-void my_print_attrs(struct bt_gatt_attr *attrs, uint16_t len){
-    for(int i = 0; i< len; i++){
-        struct bt_gatt_attr *attr = &attrs[i];
-        char uuid_str[BT_UUID_STR_LEN];
-        bt_uuid_to_str(attr->uuid, uuid_str,BT_UUID_STR_LEN);
-        LOG_DBG("uuid: %s handle: %u",uuid_str, attr->handle);
-    }
-    LOG_DBG(" ");
+void my_print_attrs(){
+    my_db_print_entries();
 }
 
 static int flush_attr_list(){
@@ -490,10 +497,7 @@ static int flush_attr_list(){
                 k_free(cn);
                 */
     }
-
-    my_print_attrs(attrs, my_attr_list_ctr);
     qsort(attrs,my_attr_list_ctr,sizeof(struct bt_gatt_attr),my_attr_node_cmp);
-    my_print_attrs(attrs, my_attr_list_ctr);
 
     uint16_t start_handle = 0;
 
@@ -505,7 +509,7 @@ static int flush_attr_list(){
         ctr++;
         char tmp_uuid_str[BT_UUID_STR_LEN];
         bt_uuid_to_str(tmp_attr->uuid, tmp_uuid_str, BT_UUID_STR_LEN);
-        LOG_DBG("ctr: %u, handle: %u, uuid: %s",ctr,tmp_attr->handle,tmp_uuid_str);
+        //LOG_DBG("ctr: %u, handle: %u, uuid: %s",ctr,tmp_attr->handle,tmp_uuid_str);
 
        
 
@@ -525,7 +529,7 @@ static int flush_attr_list(){
 
             char uuid_str[BT_UUID_STR_LEN];
             bt_uuid_to_str(tmp_attr->user_data, uuid_str, BT_UUID_STR_LEN);
-            LOG_DBG("register uuid: %s handle: %u, counter: %d", uuid_str, tmp_attr->handle, ctr);
+            //LOG_DBG("register uuid: %s handle: %u, counter: %d", uuid_str, tmp_attr->handle, ctr);
 
             my_db_add_entry(tmp_attr->handle, ENTRY_PRIMARY, tmp_attr);
             tmp_attr->handle = 0;
@@ -830,8 +834,8 @@ int my_start_discovery()
 
 
 
-
-    int err = bt_gatt_discover(main_conn, &my_disc_params);
+    int err;
+    err = bt_gatt_discover(main_conn, &my_disc_params);
     err = bt_gatt_discover(main_conn, &tmp_chrc_params);
     err = bt_gatt_discover(main_conn, &tmp_ccc_params);
 
@@ -848,8 +852,24 @@ int my_start_discovery()
 
     //reset_attr_list();
 
+    my_print_attrs();
     k_sem_give(&adv_sem);
     return 0;
+}
+
+int my_adv_reconnect(uint32_t id){
+    bt_addr_le_t *addr = bt_conn_get_dst(my_adv_get_conn(id));
+    struct bt_conn *tmp_conn;
+    int err = bt_conn_le_create(get_my_target(), &target_mitm_info.create_param, &target_mitm_info.conn_param, &tmp_conn);
+    return err;
+}
+
+struct bt_conn *my_adv_get_conn(uint32_t id){
+    if(id > connection_ctr){
+        LOG_ERR("invalid connection id");
+        return 0;
+    }
+    return connections[id];
 }
 
 static void connected(struct bt_conn * conn, uint8_t err)
@@ -877,14 +897,18 @@ static void connected(struct bt_conn * conn, uint8_t err)
                                         addr, my_info.id, (my_info.role == BT_CONN_ROLE_CENTRAL ? "central" : "periphiral"), 
                                         my_addr, my_local_addr,my_remote_addr);
 
+    struct bt_conn* tmp_conn = bt_conn_ref(conn);
     if (my_info.role == BT_CONN_ROLE_CENTRAL)
     {
         main_conn = conn;
+        connections[0] = tmp_conn;
         k_sem_give(&adv_sem);
         return;
     }
     else
     {
+        connections[connection_ctr] = tmp_conn;
+        connection_ctr++;
         return;
     }
 }

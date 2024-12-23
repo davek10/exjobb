@@ -71,5 +71,6 @@ struct my_db_entry *my_db_ccc_to_value_handle(uint16_t ccc_handle);
 uint16_t my_db_translate_handle(uint16_t handle, uint8_t dir);
 size_t my_db_get_entry_data(struct my_db_entry *entry,void *buf, uint16_t len);
 void my_db_translate_chrc_user_data();
+void my_db_print_entries();
 
 #endif

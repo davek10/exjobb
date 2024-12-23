@@ -8,6 +8,7 @@
 #include <zephyr/sys/slist.h>
 #include <zephyr/bluetooth/uuid.h>
 #include <zephyr/bluetooth/bluetooth.h>
+#include <zephyr/bluetooth/conn.h>
 #include "myutil.h"
 
 #define MY_MITM_AD_WAIT_LIMIT 15
@@ -42,6 +43,8 @@ struct my_mitm_info {
     bool is_coded;
     uint16_t appearance;
     unsigned int passkey;
+    struct bt_le_conn_param conn_param;
+    struct bt_conn_le_create_param create_param;
 };
 
     struct my_callback_struct

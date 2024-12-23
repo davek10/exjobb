@@ -25,3 +25,36 @@ uint32_t my_str_to_uint(char *buf, size_t max_len)
     }
     return res;
 }
+
+int my_naive_pow(int x, int n)
+{
+    if (n == 0)
+    {
+        return 1;
+    }
+    else if (n == 1)
+    {
+        return x;
+    }
+
+    int res = x;
+    int mem[2] = {x, x * x, x * x * x};
+    int ctr = 1;
+
+    while (ctr < n)
+    {
+        if (ctr <= n / 2)
+        {
+            res *= res;
+            ctr *= 2;
+        }
+        else
+        {
+            int idx = MIN(3, n - ctr) - 1;
+            res *= mem[idx];
+            ctr += idx + 1;
+        }
+    }
+    LOG_DBG("pow, x: %d, n: %d, res: %d", x, n, res);
+    return res;
+}

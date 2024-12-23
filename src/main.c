@@ -49,6 +49,7 @@ enum command{
 	START,
 	REPLACE,
 	BOND,
+	RECONNECT,
 };
 
 
@@ -71,15 +72,15 @@ static void auth_cancel(struct bt_conn *conn)
 }
 
 static void auth_passkey_entry(struct bt_conn *conn){
-	LOG_DBG("");
-	LOG_DBG("passkey_entry");
+	LOG_INF("");
+	LOG_INF("passkey_entry");
 	unsigned int passkey;
 	#ifndef MY_CPY_USER_PASSKEY
 	atomic_set(&my_auth_flag,1);
 	k_sem_take(&my_auth_sem,K_FOREVER);
 	#endif
 	passkey = my_mitm_get_passkey();
-	LOG_DBG("retrieved passkey: %u",passkey);
+	LOG_INF("retrieved passkey: %u",passkey);
 	
 	int err = bt_conn_auth_passkey_entry(conn, passkey);
 	if(err){
@@ -162,34 +163,7 @@ void my_disconnect_all_cb(struct bt_conn *conn, void *data)
 		bt_le_adv_stop();
 	}
 
-	int my_naive_pow(int x, int n)
-	{
-		if (n == 0)
-		{
-			return 1;
-		}
-		else if (n == 1)
-		{
-			return x;
-		}
-
-		int xsqr = x * x;
-		int res = 1;
-		while (n > 1)
-		{
-			if (n % 2 == 0)
-			{
-				res *= xsqr;
-				n = n / 2;
-			}
-			else
-			{
-				res *= x;
-				n -= 1;
-			}
-		}
-		return res;
-	}
+	
 
 	size_t my_str_to_bytes(char *str, uint8_t **data){
 		
@@ -298,6 +272,18 @@ void my_disconnect_all_cb(struct bt_conn *conn, void *data)
 			set_my_target(addr, type);
 			return TARGET;
 		}
+		else if (strncmp(iter, "reconnect", sizeof("reconnect")) == 0)
+		{
+			iter = strtok_r(NULL, " ", &tmp);
+			const uint8_t max_conn_str_len = (CONFIG_BT_MAX_CONN %10)+3;
+			char id[max_conn_str_len];
+			strncpy(id, iter, max_conn_str_len);
+			LOG_DBG("id = %s", id);
+			uint32_t uint_id = my_str_to_uint(id,max_conn_str_len);
+			my_adv_reconnect(uint_id);
+
+			return RECONNECT;
+		}
 
 		else
 		{
@@ -360,9 +346,8 @@ int my_start(){
 #endif
 
 	LOG_INF("Creating main connection to target ...\n");
-	
-	
-	struct bt_le_conn_param my_param = *BT_LE_CONN_PARAM_DEFAULT;
+
+	target_mitm_info.conn_param = *BT_LE_CONN_PARAM_DEFAULT;
 	struct bt_conn *_tmp_conn;
 	char tmpp [BT_ADDR_LE_STR_LEN];
 	bt_addr_le_to_str(get_my_target(),tmpp,sizeof(tmpp));
@@ -371,11 +356,11 @@ int my_start(){
 	bool is_coded = my_mitm_get_is_coded();
 	uint32_t opt = (is_coded ? BT_CONN_LE_OPT_CODED : BT_CONN_LE_OPT_NONE);
 	
-	struct bt_conn_le_create_param my_create_param = *BT_CONN_LE_CREATE_PARAM(opt,
+	target_mitm_info.create_param = *BT_CONN_LE_CREATE_PARAM(opt,
 																			  BT_GAP_SCAN_FAST_INTERVAL,
 																			  BT_GAP_SCAN_FAST_INTERVAL);
 	
-	err = bt_conn_le_create(get_my_target(), &my_create_param, &my_param, &_tmp_conn);
+	err = bt_conn_le_create(get_my_target(), &target_mitm_info.create_param, &target_mitm_info.conn_param, &_tmp_conn);
 	if(err){
 		LOG_ERR("failed to connect to target err: %d ",err);
 	}
@@ -443,7 +428,7 @@ void main(void)
 		print_uart(tx_buf);
 		print_uart("\r\n");
 		if(atomic_get(&my_auth_flag)){
-			LOG_DBG("in auth mode");
+			LOG_INF("in auth mode");
 			my_mitm_set_passkey_c(&tx_buf, UART_MSG_SIZE);
 			atomic_set(&my_auth_flag,0);
 			k_sem_give(&my_auth_sem);
@@ -478,6 +463,7 @@ void main(void)
 		case LIST_DEVICES:
 			list_devices();
 			break;
+			
 		default:
 			print_uart("command executed \r\n");
 			break;

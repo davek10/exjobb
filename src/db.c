@@ -112,10 +112,10 @@ struct my_db_entry* my_db_add_entry(uint16_t handle, my_entry_type type, struct 
 
 int my_db_read_entry(uint16_t handle, void *buffer, uint16_t len, bool wait)
 {
-    LOG_DBG("in read db");
+    //LOG_DBG("in read db");
     struct my_db_node *cn;
     SYS_SLIST_FOR_EACH_CONTAINER(&my_db, cn, node){
-        LOG_DBG("current handle: %u, looking for handle: %u",cn->data.handle, handle);
+        //LOG_DBG("current handle: %u, looking for handle: %u",cn->data.handle, handle);
         if(cn->data.handle == handle){
             
             #ifdef MY_CALLBACK_ATTEMPT
@@ -284,6 +284,18 @@ void my_db_translate_chrc_user_data(){
             uint16_t tmp_uint = entry->attr->handle;
             tmp->value_handle = tmp_uint;
         }
+    }
+}
+
+void my_db_print_entries(){
+
+    struct my_db_node *cn;
+    SYS_SLIST_FOR_EACH_CONTAINER(&my_db, cn, node)
+    {
+        struct my_db_entry *entry = &cn->data;
+        char uuid_str[BT_UUID_STR_LEN];
+        bt_uuid_to_str(entry->attr->uuid,uuid_str,sizeof(uuid_str));
+        LOG_DBG("uuid: %s target_handle: %u, user_handle: %u", uuid_str, entry->handle, entry->attr->handle);
     }
 }
 
